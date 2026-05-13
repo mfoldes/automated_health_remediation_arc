@@ -1,0 +1,32 @@
+# PowerShell / module artifacts
+*.user
+TestResults/
+*.suo
+*.cache
+PSScriptAnalyzer.cache.json
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build / package output
+out/
+dist/
+pkg/
+*.zip
+
+# Local environment + secrets (never commit)
+.env
+.env.local
+secrets/
+*.secret.json
+*.pfx
+*.pem
+*.key

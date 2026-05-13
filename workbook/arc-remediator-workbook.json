@@ -1,0 +1,230 @@
+{
+  "version": "Notebook/1.0",
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# ArcRemediator fleet view\n\nOne row per host per day from the `ArcRemediation_CL` table.  Filter by `CloudProfile` to view Commercial vs AzureGovernmentDoD independently. **Commercial validation does not qualify DoD/IL5.**"
+      },
+      "name": "header"
+    },
+
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "tr",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "type": 4,
+            "isRequired": true,
+            "value": { "durationMs": 604800000 },
+            "typeSettings": {
+              "selectableValues": [
+                { "durationMs": 86400000 },
+                { "durationMs": 259200000 },
+                { "durationMs": 604800000 },
+                { "durationMs": 2592000000 }
+              ]
+            }
+          },
+          {
+            "id": "cp",
+            "version": "KqlParameterItem/1.0",
+            "name": "CloudProfile",
+            "type": 2,
+            "isRequired": false,
+            "value": "All",
+            "typeSettings": {
+              "additionalResourceOptions": ["value::all"]
+            },
+            "jsonData": "[\"All\", \"Commercial\", \"AzureGovernmentDoD\"]"
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+
+    {
+      "type": 1,
+      "content": {
+        "json": "## 1. Silent servers (no row in the last 36 hours)\n\nHosts known to the workspace but missing recent rows.  Daily run + 0-60 min random delay should hit every 24 hours; >36h means the scheduled task did not write a row.  Common causes: scheduled task disabled, module crashed pre-config-load, Monitor token failure with no local recovery."
+      },
+      "name": "silent-hdr"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let recent = ArcRemediation_CL | where TimeGenerated > ago(30d) | summarize LastSeen = max(TimeGenerated) by Hostname, CloudProfile;\nrecent\n| where LastSeen < ago(36h)\n| where iff(\"{CloudProfile}\" == \"All\", true, CloudProfile == \"{CloudProfile}\")\n| project Hostname, CloudProfile, LastSeen, HoursSilent = round((now() - LastSeen) / 1h, 1)\n| sort by HoursSilent desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "silent-servers"
+    },
+
+    {
+      "type": 1,
+      "content": { "json": "## 2. Outcomes by cloud profile (last `{TimeRange}`)\n\nDistribution of `Outcome` values per `CloudProfile`.  Commercial and DoD should be tracked independently." },
+      "name": "outcomes-hdr"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ArcRemediation_CL\n| where TimeGenerated {TimeRange}\n| where iff(\"{CloudProfile}\" == \"All\", true, CloudProfile == \"{CloudProfile}\")\n| summarize Count = count() by CloudProfile, Outcome\n| sort by CloudProfile asc, Count desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "barchart",
+        "chartSettings": { "group": "CloudProfile", "ySettings": { "numberFormatSettings": { "unit": 17, "options": { "style": "decimal" } } } }
+      },
+      "name": "outcomes-by-cloud"
+    },
+
+    {
+      "type": 1,
+      "content": { "json": "## 3. ConnectivityBlocked / NeedsHuman\n\nHosts whose Disconnected diagnosis was not auto-recoverable.  Operator review required." },
+      "name": "blocked-hdr"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ArcRemediation_CL\n| where TimeGenerated {TimeRange}\n| where Outcome in (\"ConnectivityBlocked\", \"NeedsHuman\")\n| where iff(\"{CloudProfile}\" == \"All\", true, CloudProfile == \"{CloudProfile}\")\n| summarize LastSeen = max(TimeGenerated), Occurrences = count(), LastDetail = arg_max(TimeGenerated, OutcomeDetail).OutcomeDetail by Hostname, CloudProfile, Outcome\n| sort by LastSeen desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "blocked"
+    },
+
+    {
+      "type": 1,
+      "content": { "json": "## 4. ResourceNotFound\n\nARM GET returned 404.  The remediator NEVER auto-recreates; every row here needs an operator decision (see `docs/ops-runbook.md` section 7.4)." },
+      "name": "rnf-hdr"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ArcRemediation_CL\n| where TimeGenerated {TimeRange}\n| where Outcome == \"ResourceNotFound\"\n| where iff(\"{CloudProfile}\" == \"All\", true, CloudProfile == \"{CloudProfile}\")\n| summarize FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated), Occurrences = count(), SampleResourceId = any(AzureResourceId) by Hostname, CloudProfile\n| sort by LastSeen desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "resource-not-found"
+    },
+
+    {
+      "type": 1,
+      "content": { "json": "## 5. ARM error trio (Forbidden / Throttled / TransientFailure)\n\nThree distinct ARM-side failure modes.  `ArmForbidden` typically means RBAC drift (the Arc SP lost its role assignment).  `ArmThrottled` means fleet activity exceeded subscription-level limits.  `ArmTransientFailure` is the catch-all for 5xx and network errors." },
+      "name": "arm-hdr"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ArcRemediation_CL\n| where TimeGenerated {TimeRange}\n| where Outcome in (\"ArmForbidden\", \"ArmThrottled\", \"ArmTransientFailure\")\n| where iff(\"{CloudProfile}\" == \"All\", true, CloudProfile == \"{CloudProfile}\")\n| summarize Occurrences = count() by CloudProfile, Outcome, bin(TimeGenerated, 1h)\n| sort by TimeGenerated asc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "timechart"
+      },
+      "name": "arm-errors-timechart"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ArcRemediation_CL\n| where TimeGenerated {TimeRange}\n| where Outcome in (\"ArmForbidden\", \"ArmThrottled\", \"ArmTransientFailure\")\n| where iff(\"{CloudProfile}\" == \"All\", true, CloudProfile == \"{CloudProfile}\")\n| summarize LastSeen = max(TimeGenerated), Occurrences = count(), LastDetail = arg_max(TimeGenerated, OutcomeDetail).OutcomeDetail by Hostname, CloudProfile, Outcome\n| sort by Occurrences desc, LastSeen desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "arm-errors-table"
+    },
+
+    {
+      "type": 1,
+      "content": { "json": "## 6. Expired rejoin attempts\n\nDestructive Expired-rejoin attempts in the window.  Each `ExpiredRejoinSuccess` is one machine recreated; each `ExpiredRejoinFailure` is a cooldown-locked host that needs operator review.  `CooldownSkipped` means a previous attempt is still inside the 7-day window." },
+      "name": "expired-hdr"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ArcRemediation_CL\n| where TimeGenerated {TimeRange}\n| where Outcome in (\"ExpiredRejoinSuccess\", \"ExpiredRejoinFailure\", \"CooldownSkipped\")\n| where iff(\"{CloudProfile}\" == \"All\", true, CloudProfile == \"{CloudProfile}\")\n| project TimeGenerated, Hostname, CloudProfile, Outcome, OutcomeDetail, AzureResourceId, RunDurationMs\n| sort by TimeGenerated desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "expired-rejoin"
+    },
+
+    {
+      "type": 1,
+      "content": { "json": "## 7. Tripped breakers\n\nHosts currently reporting `BreakerTripped == true` in their most recent run.  Reset via `Reset-ArcRemediator` on the host after the root cause is resolved." },
+      "name": "breaker-hdr"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ArcRemediation_CL\n| where TimeGenerated > ago(2d)\n| where iff(\"{CloudProfile}\" == \"All\", true, CloudProfile == \"{CloudProfile}\")\n| summarize arg_max(TimeGenerated, *) by Hostname\n| where BreakerTripped == true\n| project Hostname, CloudProfile, LastRun = TimeGenerated, ConsecutiveFailures, Outcome, OutcomeDetail, ResetByUser\n| sort by LastRun desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "breakers"
+    },
+
+    {
+      "type": 1,
+      "content": { "json": "## 8. Agent version drift\n\nHosts whose `AgentVersion` falls below the configured supported floor recorded in `ProbeAgentVersion`.  Use to plan agent upgrade waves." },
+      "name": "version-hdr"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ArcRemediation_CL\n| where TimeGenerated > ago(2d)\n| where iff(\"{CloudProfile}\" == \"All\", true, CloudProfile == \"{CloudProfile}\")\n| summarize arg_max(TimeGenerated, *) by Hostname\n| extend ProbeStatus = tostring(ProbeAgentVersion.Status)\n| extend MeetsFloor = tobool(ProbeAgentVersion.MeetsFloor)\n| extend SupportedFloor = tostring(ProbeAgentVersion.SupportedFloor)\n| where ProbeStatus == \"Below\"\n| project Hostname, CloudProfile, AgentVersion, SupportedFloor, MeetsFloor, ProbeStatus, LastRun = TimeGenerated\n| sort by Hostname asc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "version-drift"
+    },
+
+    {
+      "type": 1,
+      "content": { "json": "## 9. Observe-mode hosts\n\nHosts still pinned to Observe in their most recent run.  These will not auto-remediate Disconnected services or Expired states.  Plan Phase 10 lab matrix completion before promoting to Enforce." },
+      "name": "observe-hdr"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "ArcRemediation_CL\n| where TimeGenerated > ago(2d)\n| where iff(\"{CloudProfile}\" == \"All\", true, CloudProfile == \"{CloudProfile}\")\n| summarize arg_max(TimeGenerated, *) by Hostname\n| where ScriptMode == \"Observe\"\n| project Hostname, CloudProfile, ScriptMode, AzureSideState, Outcome, LastRun = TimeGenerated\n| sort by CloudProfile asc, Hostname asc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "name": "observe-hosts"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "fromTemplateId": "arc-remediator-workbook-v1"
+}
