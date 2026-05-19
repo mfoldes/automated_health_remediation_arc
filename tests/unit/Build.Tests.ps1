@@ -22,7 +22,9 @@ Describe 'package/build.ps1' {
                 Add-Type -AssemblyName System.IO.Compression.FileSystem
                 $zip = [System.IO.Compression.ZipFile]::OpenRead($r.ZipPath)
                 try {
-                    $entries = $zip.Entries | ForEach-Object { $_.FullName }
+                    # Normalize path separators: .NET Framework (PS 5.1) may emit
+                # backslashes in ZipEntry.FullName; .NET Core (PS 7) always uses '/'.
+                $entries = $zip.Entries | ForEach-Object { $_.FullName -replace '\\', '/' }
                     $entries | Should -Contain 'ArcRemediator/ArcRemediator.psd1'
                     $entries | Should -Contain 'ArcRemediator/ArcRemediator.psm1'
                     $entries | Should -Contain 'ArcRemediator/Bootstrap/Install.ps1'
@@ -55,7 +57,7 @@ Describe 'package/build.ps1' {
                 Add-Type -AssemblyName System.IO.Compression.FileSystem
                 $zip = [System.IO.Compression.ZipFile]::OpenRead($r.ZipPath)
                 try {
-                    $entry = $zip.Entries | Where-Object { $_.FullName -eq 'samples/config.usgovdod.sample.json' } | Select-Object -First 1
+                    $entry = $zip.Entries | Where-Object { ($_.FullName -replace '\\', '/') -eq 'samples/config.usgovdod.sample.json' } | Select-Object -First 1
                     $reader = New-Object System.IO.StreamReader($entry.Open())
                     $json = $reader.ReadToEnd()
                     $reader.Dispose()

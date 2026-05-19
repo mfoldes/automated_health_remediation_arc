@@ -120,6 +120,13 @@ function Invoke-Azcmagent {
             }
             $proc.WaitForExit()
             $timedOut = $true
+        } else {
+            # Even when WaitForExit(ms) signals completion, call the no-arg
+            # overload to flush async stdout/stderr I/O handles before reading
+            # ExitCode.  Required on Windows PowerShell 5.1 Desktop where
+            # Start-Process -RedirectStandard* uses background threads that
+            # may not finish before the timed overload returns $true.
+            $proc.WaitForExit()
         }
         $exitCode = $proc.ExitCode
     } finally {

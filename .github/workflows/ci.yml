@@ -41,12 +41,6 @@ jobs:
     name: Pester 5 (PowerShell 7)
     runs-on: windows-latest
     needs: static
-    # continue-on-error is set until Gap 17 closes. The current suite has
-    # 7 known-failing tests on PS 7 (Az.Resources [guid] coercion + Az.Storage
-    # IStorageContext type coercion in azure-setup test mocks). See plan.md
-    # Gap 17 for repros and a 6-step cleanup plan. Remove this flag once the
-    # suite is clean.
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,10 +60,6 @@ jobs:
       - name: Run-Tests.ps1 -SkipParser -SkipAnalyzer (Pester only, on PS 7)
         shell: pwsh
         run: |
-          # The Pester suite was authored against PowerShell 7 and uses
-          # PS 7-only features ($IsWindows, normalized ZIP path separators,
-          # etc.) that fail on PS 5.1 Desktop. Until Gap 17 is closed,
-          # tests run on PS 7 here.
           .\build\Run-Tests.ps1 -SkipParser -SkipAnalyzer
 
       - name: Upload Pester results
@@ -77,5 +67,40 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pester-nunit-xml
+          path: TestResults/pester.xml
+          if-no-files-found: warn
+
+  pester51:
+    name: Pester 5 (Windows PowerShell 5.1)
+    runs-on: windows-latest
+    needs: static
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester 5 (PS 5.1)
+        shell: powershell
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          $pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
+          if (-not $pester) {
+              Install-Module -Name Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.5.0
+          }
+          Get-Module -ListAvailable -Name Pester |
+              Select-Object Name, Version |
+              Format-Table -AutoSize
+
+      - name: Run-Tests.ps1 -SkipParser -SkipAnalyzer (Pester only, PS 5.1 Desktop)
+        shell: powershell
+        run: |
+          # This job validates the actual deployment target: Windows PowerShell
+          # 5.1 Desktop, which is the runtime on Arc-enabled Windows servers.
+          .\build\Run-Tests.ps1 -SkipParser -SkipAnalyzer
+
+      - name: Upload Pester results (PS 5.1)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester51-nunit-xml
           path: TestResults/pester.xml
           if-no-files-found: warn

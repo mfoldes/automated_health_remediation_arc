@@ -9,15 +9,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
 
 ### Added
 
-- GitHub Actions CI (`.github/workflows/ci.yml`) with two jobs on
+- GitHub Actions CI (`.github/workflows/ci.yml`) with three jobs on
   `windows-latest`:
   - `static`: Parser sweep + PSScriptAnalyzer on Windows PowerShell 5.1
     (the module's target runtime). This is the gate that prevents
     PS 7-only syntax from leaking into the source.
-  - `pester`: Pester 5 on PowerShell 7. The existing unit suite uses
-    PS 7-only features (`$IsWindows`, normalized ZIP path separators,
-    looser `[guid]` coercion); the proper PS 5.1 alignment is tracked
-    as Gap 17 in the gap-remediation plan.
+  - `pester`: Pester 5 on PowerShell 7.
+  - `pester51`: Pester 5 on Windows PowerShell 5.1 Desktop — validates
+    the actual deployment target (Arc-enabled Windows servers ship PS 5.1).
 - `SECURITY.md` with the project's vulnerability-reporting policy.
 - `CHANGELOG.md` (this file) and `tests/unit/Changelog.Tests.ps1`
   asserting structure and version alignment with the module manifest.
@@ -31,15 +30,22 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
 - Internal helper rename for PSScriptAnalyzer `PSUseApprovedVerbs` compliance:
   `Build-Row` → `Resolve-RemediationRow` (private to `Invoke-ArcRemediation.ps1`);
   `Build-ServiceRow` → `ConvertTo-AgentServiceRow` (private to `Test-AgentServices.ps1`).
-  Both functions were file-local; no public surface is affected. `ConvertTo-*`
-  was chosen over `New-*` because the helper transforms an existing service
-  object into a row hashtable (no state change) and `New-*` triggers
-  `PSUseShouldProcessForStateChangingFunctions` without `SupportsShouldProcess`.
-- CI: the `pester` job is marked `continue-on-error: true` while Gap 17
-  (test-fixture compatibility with strict Az.Resources / Az.Storage
-  parameter types) is open. Failures continue to surface in the run summary
-  but do not gate merges to the integration branch. The `static` job
-  remains a hard gate. Remove the flag once Gap 17 closes.
+  Both functions were file-local; no public surface is affected.
+- `azure-setup/tests/AzStubs.ps1`: Removed conditional guards so stubs are
+  always defined, shadowing any installed Az module cmdlets. This prevents
+  Pester from binding mock parameters against the real cmdlets' strongly-typed
+  signatures (e.g. `[guid]$ApplicationId`, `[IStorageContext]$Context`).
+- `tests/unit/RemediatorConfig.Tests.ps1`: Replaced `$IsWindows` (PS 6+ only)
+  with `$env:OS -eq 'Windows_NT'` for cross-edition DPAPI guard.
+- `tests/unit/Build.Tests.ps1`: Normalize ZIP entry path separators via
+  `-replace '\\','/'` before `Should -Contain` assertions. On PS 5.1 Desktop,
+  `ZipEntry.FullName` uses backslashes; PS 7 always uses forward slashes.
+- `src/ArcRemediator/Private/Invoke-Azcmagent.ps1`: Added blocking
+  `$proc.WaitForExit()` in the non-timeout code path. On Windows PowerShell
+  5.1, the timed `WaitForExit(ms)` overload may return `$true` before async
+  stdout/stderr handles are fully flushed, causing `$proc.ExitCode` to return
+  `$null`. The no-arg overload guarantees all handles are closed before
+  `ExitCode` is read.
 
 ## [1.0.0-preview] - 2026-05-19
 

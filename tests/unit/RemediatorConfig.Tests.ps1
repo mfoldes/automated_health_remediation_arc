@@ -28,7 +28,8 @@ AfterAll {
 Describe 'Set-EncryptedConfig + Get-DecryptedConfig (DPAPI LocalMachine)' -Tag 'WindowsOnly' {
 
     BeforeAll {
-        if (-not ($IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop')) {
+        # $IsWindows is only available on PS 6+; use $env:OS on 5.1 Desktop.
+        if ($PSVersionTable.PSEdition -ne 'Desktop' -and $env:OS -ne 'Windows_NT') {
             throw 'DPAPI tests require Windows.'
         }
     }
