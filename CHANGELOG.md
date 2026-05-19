@@ -30,8 +30,11 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
   this preview) and no longer quotes a specific Pester test count.
 - Internal helper rename for PSScriptAnalyzer `PSUseApprovedVerbs` compliance:
   `Build-Row` → `Resolve-RemediationRow` (private to `Invoke-ArcRemediation.ps1`);
-  `Build-ServiceRow` → `New-AgentServiceRow` (private to `Test-AgentServices.ps1`).
-  Both functions were file-local; no public surface is affected.
+  `Build-ServiceRow` → `ConvertTo-AgentServiceRow` (private to `Test-AgentServices.ps1`).
+  Both functions were file-local; no public surface is affected. `ConvertTo-*`
+  was chosen over `New-*` because the helper transforms an existing service
+  object into a row hashtable (no state change) and `New-*` triggers
+  `PSUseShouldProcessForStateChangingFunctions` without `SupportsShouldProcess`.
 
 ## [1.0.0-preview] - 2026-05-19
 
