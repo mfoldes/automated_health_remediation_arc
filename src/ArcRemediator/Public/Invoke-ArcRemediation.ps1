@@ -226,7 +226,7 @@ function Invoke-ArcRemediation {
         if ($earlyOutcome) {
             $outcomeString = $earlyOutcome
             $outcomeDetail = $earlyDetail
-            $row = Build-Row $eventTime $cfg $mode $outcomeString $outcomeDetail $resourceState $connectivity $localRg $localName $state @() @() $errorMessage $sw
+            $row = Resolve-RemediationRow $eventTime $cfg $mode $outcomeString $outcomeDetail $resourceState $connectivity $localRg $localName $state @() @() $errorMessage $sw
             $logIngestionFailed = -not (Send-RowOrLogFailure $cfg $row $monitorToken $LogDirectory)
             return New-RunResult -Outcome $outcomeString -Detail $outcomeDetail -Row $row -LogIngestionFailed $logIngestionFailed -Elapsed $sw
         }
@@ -357,7 +357,7 @@ function Invoke-ArcRemediation {
         }
 
         # ---- 9. Build LAW row + best-effort send -------------------------
-        $row = Build-Row $eventTime $cfg $mode $outcomeString $outcomeDetail $resourceState $connectivity $localRg $localName $state $actionsAttempted.ToArray() $actionsSuccessful.ToArray() $errorMessage $sw `
+        $row = Resolve-RemediationRow $eventTime $cfg $mode $outcomeString $outcomeDetail $resourceState $connectivity $localRg $localName $state $actionsAttempted.ToArray() $actionsSuccessful.ToArray() $errorMessage $sw `
             -ProbeAzcmagentCheck $probeCheck -ProbeServices $probeServices -ProbeCertificate $probeCert -ProbeTimeSync $probeTime -ProbeAgentVersion $probeVersion
 
         $logIngestionFailed = -not (Send-RowOrLogFailure $cfg $row $monitorToken $LogDirectory)
@@ -411,7 +411,7 @@ function New-RunResult {
     }
 }
 
-function Build-Row {
+function Resolve-RemediationRow {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Thin wrapper around New-RemediatorRow; pure factory.')]
     [CmdletBinding()]

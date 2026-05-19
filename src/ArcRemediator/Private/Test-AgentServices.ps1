@@ -69,7 +69,7 @@ function Test-AgentServices {
 
     foreach ($name in $ServiceNames) {
         $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
-        $row = Build-ServiceRow -Name $name -Required $true -Service $svc
+        $row = New-AgentServiceRow -Name $name -Required $true -Service $svc
         $rows.Add($row)
         if (-not $row.Installed) { $missingReq.Add($name) }
         elseif (-not $row.IsRunning -and -not $row.IsStopped) {
@@ -81,7 +81,7 @@ function Test-AgentServices {
 
     # Arc Proxy is optional unless gateway is required.
     $proxySvc = Get-Service -Name $ArcProxyServiceName -ErrorAction SilentlyContinue
-    $proxyRow = Build-ServiceRow -Name $ArcProxyServiceName -Required:$GatewayRequired -Service $proxySvc
+    $proxyRow = New-AgentServiceRow -Name $ArcProxyServiceName -Required:$GatewayRequired -Service $proxySvc
     $rows.Add($proxyRow)
 
     $needsHuman = $false
@@ -106,7 +106,7 @@ function Test-AgentServices {
     }
 }
 
-function Build-ServiceRow {
+function New-AgentServiceRow {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(

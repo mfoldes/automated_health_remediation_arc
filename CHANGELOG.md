@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
   `ProjectUri`, `ReleaseNotes`, and `Prerelease = 'preview'` metadata.
 - `README.md` no longer claims a `tests/integration/` tree (none exists in
   this preview) and no longer quotes a specific Pester test count.
+- Internal helper rename for PSScriptAnalyzer `PSUseApprovedVerbs` compliance:
+  `Build-Row` → `Resolve-RemediationRow` (private to `Invoke-ArcRemediation.ps1`);
+  `Build-ServiceRow` → `New-AgentServiceRow` (private to `Test-AgentServices.ps1`).
+  Both functions were file-local; no public surface is affected.
 
 ## [1.0.0-preview] - 2026-05-19
 
