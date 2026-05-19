@@ -27,7 +27,7 @@ Describe 'CHANGELOG.md' {
         }
 
         It 'has at least one versioned release heading' {
-            ($script:Content -split "`n" | Where-Object {
+            @($script:Content -split "`n" | Where-Object {
                 $_ -match '^## \[\d+\.\d+\.\d+'
             }).Count | Should -BeGreaterThan 0
         }
