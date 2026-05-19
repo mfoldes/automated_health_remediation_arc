@@ -9,10 +9,18 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
 
 ### Added
 
-- GitHub Actions CI (`.github/workflows/ci.yml`) running `build/Run-Tests.ps1`
-  on `windows-latest` for every push and pull request to `master`.
+- GitHub Actions CI (`.github/workflows/ci.yml`) with two jobs on
+  `windows-latest`:
+  - `static`: Parser sweep + PSScriptAnalyzer on Windows PowerShell 5.1
+    (the module's target runtime). This is the gate that prevents
+    PS 7-only syntax from leaking into the source.
+  - `pester`: Pester 5 on PowerShell 7. The existing unit suite uses
+    PS 7-only features (`$IsWindows`, normalized ZIP path separators,
+    looser `[guid]` coercion); the proper PS 5.1 alignment is tracked
+    as Gap 17 in the gap-remediation plan.
 - `SECURITY.md` with the project's vulnerability-reporting policy.
-- `CHANGELOG.md` (this file).
+- `CHANGELOG.md` (this file) and `tests/unit/Changelog.Tests.ps1`
+  asserting structure and version alignment with the module manifest.
 
 ### Changed
 

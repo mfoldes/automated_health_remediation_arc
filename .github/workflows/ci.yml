@@ -10,33 +10,61 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Parser + Analyzer + Pester (Windows PowerShell 5.1)
+  static:
+    name: Parser + PSScriptAnalyzer (Windows PowerShell 5.1)
     runs-on: windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install PSScriptAnalyzer + Pester 5 (PS 5.1)
+      - name: Install PSScriptAnalyzer (PS 5.1)
         shell: powershell
         run: |
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
               Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force -SkipPublisherCheck
           }
+          Get-Module -ListAvailable -Name PSScriptAnalyzer |
+              Select-Object Name, Version |
+              Format-Table -AutoSize
+
+      - name: Run-Tests.ps1 -SkipPester (PS 5.1 parser sweep + analyzer)
+        shell: powershell
+        run: |
+          # Parser sweep here is the only gate that catches PS 7-only
+          # syntax leaking into the PS 5.1 Desktop target. The Pester
+          # job runs separately on PS 7 because the existing test
+          # suite uses PS 7-only features (see Gap 17 in plan.md).
+          .\build\Run-Tests.ps1 -SkipPester
+
+  pester:
+    name: Pester 5 (PowerShell 7)
+    runs-on: windows-latest
+    needs: static
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester 5 (PS 7)
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           $pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
           if (-not $pester) {
               Install-Module -Name Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.5.0
           }
-          Get-Module -ListAvailable -Name Pester,PSScriptAnalyzer |
+          Get-Module -ListAvailable -Name Pester |
               Select-Object Name, Version |
               Format-Table -AutoSize
 
-      - name: Run-Tests.ps1 (parser + analyzer + Pester 5)
-        shell: powershell
+      - name: Run-Tests.ps1 -SkipParser -SkipAnalyzer (Pester only, on PS 7)
+        shell: pwsh
         run: |
-          .\build\Run-Tests.ps1
+          # The Pester suite was authored against PowerShell 7 and uses
+          # PS 7-only features ($IsWindows, normalized ZIP path separators,
+          # etc.) that fail on PS 5.1 Desktop. Until Gap 17 is closed,
+          # tests run on PS 7 here.
+          .\build\Run-Tests.ps1 -SkipParser -SkipAnalyzer
 
       - name: Upload Pester results
         if: always()

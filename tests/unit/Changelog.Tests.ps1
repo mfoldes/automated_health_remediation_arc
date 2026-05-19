@@ -1,21 +1,21 @@
 Set-StrictMode -Version 3.0
 
+BeforeAll {
+    $script:RepoRoot       = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $script:ChangelogPath  = Join-Path $script:RepoRoot 'CHANGELOG.md'
+    $script:ManifestPath   = Join-Path $script:RepoRoot 'src/ArcRemediator/ArcRemediator.psd1'
+}
+
 Describe 'CHANGELOG.md' {
 
-    BeforeAll {
-        $script:RepoRoot       = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
-        $script:ChangelogPath  = Join-Path $RepoRoot 'CHANGELOG.md'
-        $script:ManifestPath   = Join-Path $RepoRoot 'src/ArcRemediator/ArcRemediator.psd1'
-    }
-
     It 'exists at the repo root' {
-        Test-Path $script:ChangelogPath | Should -BeTrue
+        Test-Path -LiteralPath $script:ChangelogPath | Should -BeTrue
     }
 
     Context 'structure' {
 
         BeforeAll {
-            $script:Content = Get-Content -Path $script:ChangelogPath -Raw
+            $script:Content = Get-Content -LiteralPath $script:ChangelogPath -Raw
         }
 
         It 'declares it follows Keep a Changelog' {
@@ -37,7 +37,7 @@ Describe 'CHANGELOG.md' {
 
         BeforeAll {
             $script:Manifest  = Import-PowerShellDataFile -Path $script:ManifestPath
-            $script:Content   = Get-Content -Path $script:ChangelogPath -Raw
+            $script:Content   = Get-Content -LiteralPath $script:ChangelogPath -Raw
 
             # Capture the first versioned heading line, like:
             #   ## [1.0.0-preview] - 2026-05-19
