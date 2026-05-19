@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Parser + Analyzer + Pester (Windows PowerShell 5.1)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer + Pester 5 (PS 5.1)
+        shell: powershell
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+              Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force -SkipPublisherCheck
+          }
+          $pester = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -ge [version]'5.5.0' } | Select-Object -First 1
+          if (-not $pester) {
+              Install-Module -Name Pester -Scope CurrentUser -Force -SkipPublisherCheck -MinimumVersion 5.5.0
+          }
+          Get-Module -ListAvailable -Name Pester,PSScriptAnalyzer |
+              Select-Object Name, Version |
+              Format-Table -AutoSize
+
+      - name: Run-Tests.ps1 (parser + analyzer + Pester 5)
+        shell: powershell
+        run: |
+          .\build\Run-Tests.ps1
+
+      - name: Upload Pester results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-nunit-xml
+          path: TestResults/pester.xml
+          if-no-files-found: warn

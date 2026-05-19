@@ -129,7 +129,6 @@ docs/
 
 tests/
   unit/                   Pester 5 unit tests, run on every commit
-  integration/            real-Azure lab matrix (manual, per cloud)
 
 build/Run-Tests.ps1       local CI gate (parser sweep + analyzer + Pester)
 ```
@@ -171,7 +170,8 @@ The gate has three passes:
 2. **PSScriptAnalyzer.** Run with `-Severity Warning -EnableExit`.
    Findings are treated as build errors.
 3. **Pester 5.** Unit tests under `tests/unit/` and
-   `azure-setup/tests/`. Currently 292 tests.
+   `azure-setup/tests/` provide comprehensive coverage of the module's
+   primitives and the azure-setup helpers.
 
 ## Compatibility
 
