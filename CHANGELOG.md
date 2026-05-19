@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
   was chosen over `New-*` because the helper transforms an existing service
   object into a row hashtable (no state change) and `New-*` triggers
   `PSUseShouldProcessForStateChangingFunctions` without `SupportsShouldProcess`.
+- CI: the `pester` job is marked `continue-on-error: true` while Gap 17
+  (test-fixture compatibility with strict Az.Resources / Az.Storage
+  parameter types) is open. Failures continue to surface in the run summary
+  but do not gate merges to the integration branch. The `static` job
+  remains a hard gate. Remove the flag once Gap 17 closes.
 
 ## [1.0.0-preview] - 2026-05-19
 
