@@ -15,11 +15,11 @@ function Invoke-WebRequestWithTls {
         .NOTES
             Do NOT collapse this function into Invoke-RestMethodWithTls.
             The two wrappers have different return types:
-              - Invoke-WebRequestWithTls   → WebResponseObject with raw headers
+              - Invoke-WebRequestWithTls   -> WebResponseObject with raw headers
                 (ETag, Azure-AsyncOperation, Retry-After, Location, Status).
                 Use when response headers drive the next action (async polling,
                 conditional PUT, kill-switch HTTP status code).
-              - Invoke-RestMethodWithTls   → deserialized object (auto-parsed JSON/XML).
+              - Invoke-RestMethodWithTls   -> deserialized object (auto-parsed JSON/XML).
                 Use for ARM / Monitor calls where only the response body is needed.
             Collapsing them would require callers to pattern-match the return type
             or always pay the overhead of a full WebResponseObject, breaking the

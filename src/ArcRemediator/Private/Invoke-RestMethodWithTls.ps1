@@ -19,9 +19,9 @@ function Invoke-RestMethodWithTls {
         .NOTES
             Do NOT collapse this function into Invoke-WebRequestWithTls.
             The two wrappers have different return types:
-              - Invoke-RestMethodWithTls  → deserialized object (auto-parsed JSON/XML).
+              - Invoke-RestMethodWithTls  -> deserialized object (auto-parsed JSON/XML).
                 Use for ARM / Monitor calls where only the response body is needed.
-              - Invoke-WebRequestWithTls  → WebResponseObject with raw headers
+              - Invoke-WebRequestWithTls  -> WebResponseObject with raw headers
                 (ETag, Azure-AsyncOperation, Retry-After, Location, Status).
                 Use when response headers drive the next action (async polling,
                 conditional PUT, kill-switch HTTP status code).
