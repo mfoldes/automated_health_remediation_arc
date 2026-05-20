@@ -213,18 +213,15 @@ Describe 'Get-AzureResourceState ARM fixture tests (Gap 16)' {
 
         It 'classifies Commercial Expired ARM response as Expired' {
             InModuleScope ArcRemediator {
-                $fixture = Join-Path (Split-Path -Parent $PSScriptRoot) 'fixtures' 'arm-expired-commercial.json'
-                $body = Get-Content -LiteralPath $fixture -Raw
+                $fixture = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'fixtures') 'arm-expired-commercial.json'
+                $env:T_FIXTURE_BODY = Get-Content -LiteralPath $fixture -Raw
                 Mock Invoke-WebRequestWithTls -MockWith {
-                    param($Uri, $Method, $Headers, $UseBasicParsing)
-                    $env:T_FIXTURE_BODY = $using:body
                     [PSCustomObject]@{
                         Content    = $env:T_FIXTURE_BODY
                         StatusCode = 200
                         Headers    = @{ ETag = 'W/"commercial-etag"' }
                     }
                 }
-                $env:T_FIXTURE_BODY = $body
                 $r = Get-AzureResourceState -CloudProfile (Get-CloudProfile -Name 'Commercial') `
                     -SubscriptionId '00000000-0000-0000-0000-000000000000' `
                     -ResourceGroupName 'rg-arc-servers' `
@@ -253,18 +250,15 @@ Describe 'Get-AzureResourceState ARM fixture tests (Gap 16)' {
 
         It 'classifies DoD Expired ARM response as Expired' {
             InModuleScope ArcRemediator {
-                $fixture = Join-Path (Split-Path -Parent $PSScriptRoot) 'fixtures' 'arm-expired-dod.json'
-                $body = Get-Content -LiteralPath $fixture -Raw
+                $fixture = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'fixtures') 'arm-expired-dod.json'
+                $env:T_FIXTURE_BODY = Get-Content -LiteralPath $fixture -Raw
                 Mock Invoke-WebRequestWithTls -MockWith {
-                    param($Uri, $Method, $Headers, $UseBasicParsing)
-                    $env:T_FIXTURE_BODY = $using:body
                     [PSCustomObject]@{
                         Content    = $env:T_FIXTURE_BODY
                         StatusCode = 200
                         Headers    = @{ ETag = 'W/"dod-etag"' }
                     }
                 }
-                $env:T_FIXTURE_BODY = $body
                 $r = Get-AzureResourceState -CloudProfile (Get-CloudProfile -Name 'AzureGovernmentDoD') `
                     -SubscriptionId '11111111-1111-1111-1111-111111111111' `
                     -ResourceGroupName 'rg-arc-servers-dod' `

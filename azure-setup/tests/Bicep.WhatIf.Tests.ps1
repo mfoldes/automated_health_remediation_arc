@@ -10,7 +10,7 @@
 
 BeforeAll {
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $script:BicepDir = Join-Path $script:RepoRoot 'azure-setup' 'bicep'
+    $script:BicepDir = Join-Path (Join-Path $script:RepoRoot 'azure-setup') 'bicep'
     $script:MainBicep = Join-Path $script:BicepDir 'main.bicep'
     $script:ParamsCommercial = Join-Path $script:BicepDir 'parameters.commercial.bicepparam'
     $script:ParamsDod = Join-Path $script:BicepDir 'parameters.dod.bicepparam'
