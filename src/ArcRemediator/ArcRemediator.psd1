@@ -8,7 +8,7 @@
     Description = 'Per-server remediator for Azure Arc-enabled Windows servers (Azure Commercial + AzureGovernmentDoD).'
     PowerShellVersion = '5.1'
     CompatiblePSEditions = @('Desktop')
-    FunctionsToExport = @('Invoke-ArcRemediation', 'Test-ArcRemediator', 'Reset-ArcRemediator')
+    FunctionsToExport = @('Invoke-ArcRemediation', 'Test-ArcRemediator', 'Reset-ArcRemediator', 'Test-ArcInstallation')
     CmdletsToExport = @()
     VariablesToExport = @()
     AliasesToExport = @()

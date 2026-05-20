@@ -45,13 +45,14 @@ Describe 'ArcRemediator module scaffolding' {
             { Import-Module $script:ManifestPath -Force -ErrorAction Stop } | Should -Not -Throw
         }
 
-        It 'exports the three public entry points: Invoke / Test / Reset' {
+        It 'exports the four public entry points' {
             Import-Module $script:ManifestPath -Force -ErrorAction Stop
             $exports = (Get-Module ArcRemediator).ExportedFunctions
-            $exports.Count | Should -Be 3
+            $exports.Count | Should -Be 4
             $exports.ContainsKey('Invoke-ArcRemediation') | Should -BeTrue
             $exports.ContainsKey('Test-ArcRemediator') | Should -BeTrue
             $exports.ContainsKey('Reset-ArcRemediator') | Should -BeTrue
+            $exports.ContainsKey('Test-ArcInstallation') | Should -BeTrue
         }
 
         It 'does not mutate global [Net.ServicePointManager]::SecurityProtocol on load' {

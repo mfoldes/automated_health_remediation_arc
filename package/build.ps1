@@ -17,10 +17,10 @@
           | |- Bootstrap/
           | | |- Install.ps1
           | | |- Uninstall.ps1
-          | | |- Invoke-RemediatorTask.ps1
-          | | '- Test-ArcInstallation.ps1
+          | | '- Invoke-RemediatorTask.ps1
           | |- Private/...
           | |- Public/...
+          | | '- Test-ArcInstallation.ps1
           | '- Data/
           | |- cloud-profiles.psd1
           | '- version.txt
@@ -150,7 +150,7 @@ Per-server remediator for Azure Arc-enabled Windows servers (Commercial + AzureG
 ## Active validation
 
 ```powershell
-. 'C:\Program Files\ArcRemediator\Bootstrap\Test-ArcInstallation.ps1'
+Import-Module 'C:\Program Files\ArcRemediator\ArcRemediator.psd1' -Force
 Test-ArcInstallation
 ```
 

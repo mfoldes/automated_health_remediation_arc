@@ -25,6 +25,16 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
 
 - `ArcRemediator.psd1` now has populated `Author`, `CompanyName`, `Copyright`,
   `ProjectUri`, `ReleaseNotes`, and `Prerelease = 'preview'` metadata.
+- `ArcRemediator.psd1` `FunctionsToExport` now includes `Test-ArcInstallation`,
+  promoting it from a Bootstrap dot-sourced script to a first-class exported
+  Public function discoverable via `Get-Command` and `Get-Help`.
+- `Test-ArcInstallation.ps1` moved from `src/ArcRemediator/Bootstrap/` to
+  `src/ArcRemediator/Public/`. Callers that previously had to dot-source
+  `Bootstrap\Test-ArcInstallation.ps1` should now use
+  `Import-Module ArcRemediator; Test-ArcInstallation` instead.
+- `Bootstrap/Install.ps1` `-Validate` path now imports the freshly-installed
+  module (via `Import-Module $installedManifest -Force`) instead of dot-sourcing
+  the Bootstrap copy of `Test-ArcInstallation.ps1`.
 - `README.md` no longer claims a `tests/integration/` tree (none exists in
   this preview) and no longer quotes a specific Pester test count.
 - Internal helper rename for PSScriptAnalyzer `PSUseApprovedVerbs` compliance:
@@ -40,6 +50,11 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
 - `tests/unit/Build.Tests.ps1`: Normalize ZIP entry path separators via
   `-replace '\\','/'` before `Should -Contain` assertions. On PS 5.1 Desktop,
   `ZipEntry.FullName` uses backslashes; PS 7 always uses forward slashes.
+- `src/ArcRemediator/Private/Invoke-RestMethodWithTls.ps1` and
+  `Invoke-WebRequestWithTls.ps1`: Added `.NOTES` sections documenting why the
+  two TLS wrappers must not be collapsed. `IRM` auto-deserializes the response
+  body; `IWR` exposes raw headers (`Azure-AsyncOperation`, `Retry-After`,
+  `ETag`, `Location`) needed for ARM async-op polling and conditional PUTs.
 - `src/ArcRemediator/Private/Invoke-Azcmagent.ps1`: Replaced `Start-Process
   -PassThru -RedirectStandard*` with direct `[System.Diagnostics.Process]::Start()`
   via `ProcessStartInfo`. On Windows PowerShell 5.1 Desktop (.NET Framework),

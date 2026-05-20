@@ -30,7 +30,7 @@ Describe 'package/build.ps1' {
                     $entries | Should -Contain 'ArcRemediator/Bootstrap/Install.ps1'
                     $entries | Should -Contain 'ArcRemediator/Bootstrap/Uninstall.ps1'
                     $entries | Should -Contain 'ArcRemediator/Bootstrap/Invoke-RemediatorTask.ps1'
-                    $entries | Should -Contain 'ArcRemediator/Bootstrap/Test-ArcInstallation.ps1'
+                    $entries | Should -Contain 'ArcRemediator/Public/Test-ArcInstallation.ps1'
                     $entries | Should -Contain 'ArcRemediator/Data/cloud-profiles.psd1'
                     $entries | Should -Contain 'ArcRemediator/Data/version.txt'
                     $entries | Should -Contain 'samples/config.commercial.sample.json'

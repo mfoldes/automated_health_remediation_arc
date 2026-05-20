@@ -305,11 +305,9 @@ if (-not $SkipTaskRegistration) {
 
 $validation = $null
 if ($Validate) {
-    # Dot-source the installed validator so Test-ArcInstallation is callable
-    # in this same shell. The validator imports the freshly-installed module
-    # itself; we do not pre-import here to avoid the multi-module-load tangle
-    # the same way the DPAPI block does.
-    . (Join-Path $InstallPath 'Bootstrap\Test-ArcInstallation.ps1')
+    # Test-ArcInstallation is a Public exported function.  Import the
+    # freshly-installed module so the function is available in this scope.
+    Import-Module $installedManifest -Force
     $validation = Test-ArcInstallation `
         -ConfigPath (Join-Path $DataPath 'config.json') `
         -ModulePath $installedManifest `
