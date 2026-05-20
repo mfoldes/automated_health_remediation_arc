@@ -97,7 +97,7 @@ ArcRemediator is a PowerShell 5.1 module deployed as a Windows Scheduled Task ru
 | Scheduled task | Runs as `NT AUTHORITY\SYSTEM`; `-ExecutionPolicy Bypass` |
 | ARM roles | Scoped to named resource groups (not subscription-level) |
 | Storage blobs | Read-only SAS tokens with expiry |
-| Service restarts | Validated against hardcoded allowed-list: `himds`, `GCArcService`, `ExtensionService`, `ArcProxyAgent` |
+| Service restarts | Validated against hardcoded allowed-list: `himds`, `GCArcService`, `ExtensionService` |
 
 ---
 
@@ -111,7 +111,7 @@ These were identified in the initial STRIDE analysis and fixed in the `security/
 
 **Fix:** Replaced with atomic `[System.IO.FileStream]::new()` constructor that accepts a `FileSecurity` parameter. The file is born with restricted ACLs (SYSTEM + Administrators only); no TOCTOU window exists.
 
-**Location:** `src/ArcRemediator/Private/Invoke-AzcmagentConnect.ps1` lines 263–305
+**Location:** `src/ArcRemediator/Private/Invoke-AzcmagentConnect.ps1` lines 265–308
 
 ### Item 2 — azcmagent.exe PATH Fallback Hijack (Elevation of Privilege)
 
@@ -127,7 +127,7 @@ These were identified in the initial STRIDE analysis and fixed in the `security/
 
 **Fix:** Added a `Get-RetryAfterSeconds` helper that parses the `Retry-After` header, clamped to [1, 60] seconds (default 10s). On 429, the function sleeps for the indicated period and retries once. If the retry also fails, it returns `ArmThrottled`.
 
-**Location:** `src/ArcRemediator/Private/Get-AzureResourceState.ps1` lines 1–20 (helper), 130–155 (retry logic)
+**Location:** `src/ArcRemediator/Private/Get-AzureResourceState.ps1` lines 1–29 (helper), 137–155 (retry logic)
 
 ### Item 4 — Kill-Switch SAS Silent Expiry (Denial of Service)
 
@@ -586,19 +586,24 @@ When an operator runs `Reset-ArcRemediator`, the action is logged locally and th
                Low       Medium      High       Critical
           ┌───────────┬───────────┬───────────┬───────────┐
           │           │           │           │           │
-  High    │           │  R6  R7   │  R1  R2   │           │
-          │           │  R8       │  R3  R4   │           │
+  High    │           │           │           │           │
+          │           │           │           │           │
           │           │           │           │           │
 Likeli-   ├───────────┼───────────┼───────────┼───────────┤
 hood      │           │           │           │           │
-  Medium  │  R11      │  R10      │  R5       │           │
+  Medium  │  R11      │  R6       │  R1  R2   │           │
+          │           │           │  R3  R4   │           │
           │           │           │           │           │
           ├───────────┼───────────┼───────────┼───────────┤
           │           │           │           │           │
-  Low     │  R12      │  R9       │           │           │
-          │           │           │           │           │
+  Low     │  R9  R10  │  R5  R7   │           │           │
+          │  R12      │  R8       │           │           │
           └───────────┴───────────┴───────────┴───────────┘
 ```
+
+> Placement is driven by each finding's **Severity** (impact column) and
+> **Likelihood** (row) attributes in section 4. R3's likelihood
+> ("Low-Medium") is placed at Medium as the conservative upper bound.
 
 ---
 
