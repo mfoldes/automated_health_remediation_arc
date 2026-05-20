@@ -147,10 +147,27 @@ function New-KillSwitchInfra {
         }
     }
 
+    # ---- Breaker-reset blob (empty by default; operator writes ISO-8601 timestamp to trigger fleet-wide breaker reset) ----
+    $breakerBlobName = 'breaker-reset.txt'
+    $breakerBlob = Get-AzStorageBlob -Container $ContainerName -Blob $breakerBlobName -Context $ctx -ErrorAction SilentlyContinue
+    if (-not $breakerBlob) {
+        # Blob is intentionally NOT created. Missing blob = no auto-reset (fail-closed).
+        # Operator creates it with: Set-AzStorageBlobContent -Container $ContainerName -Blob 'breaker-reset.txt' -File <file-with-timestamp>
+        # Content: ISO-8601 UTC timestamp, e.g. '2026-05-20T14:30:00Z'
+    }
+
     # ---- Service SAS backed by the policy ----
     $sasUrl = New-AzStorageBlobSASToken `
         -Container $ContainerName `
         -Blob $BlobName `
+        -Policy $AccessPolicyName `
+        -Context $ctx `
+        -FullUri `
+        -ErrorAction Stop
+
+    $breakerResetUrl = New-AzStorageBlobSASToken `
+        -Container $ContainerName `
+        -Blob $breakerBlobName `
         -Policy $AccessPolicyName `
         -Context $ctx `
         -FullUri `
@@ -162,5 +179,6 @@ function New-KillSwitchInfra {
         BlobName = $BlobName
         AccessPolicyName = $AccessPolicyName
         KillSwitchUrl = $sasUrl
+        BreakerResetUrl = $breakerResetUrl
     }
 }

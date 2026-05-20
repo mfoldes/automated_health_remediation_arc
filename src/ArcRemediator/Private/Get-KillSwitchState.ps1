@@ -49,6 +49,7 @@ function Get-KillSwitchState {
             CanProceed = $false
             Reason = 'BadConfig'
             LastError = 'KillSwitchUrl is empty or not an http(s) URL.'
+            SasExpiryWarning = $null
         }
     }
 
@@ -77,6 +78,7 @@ function Get-KillSwitchState {
             CanProceed = $false
             Reason = $reason
             LastError = $msg
+            SasExpiryWarning = $null
         }
     }
 
@@ -87,10 +89,22 @@ function Get-KillSwitchState {
     $trimmed = $text.Trim()
 
     if ($trimmed -ceq 'enabled') {
+        $sasExpiryWarning = $null
+        if ($KillSwitchUrl -match '[?&]se=([^&]+)') {
+            $seValue = [System.Uri]::UnescapeDataString($Matches[1])
+            $expiry = [datetime]::MinValue
+            if ([datetime]::TryParse($seValue, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal, [ref]$expiry)) {
+                $daysLeft = ($expiry.ToUniversalTime() - (Get-Date).ToUniversalTime()).TotalDays
+                if ($daysLeft -lt 30) {
+                    $sasExpiryWarning = "Kill-switch SAS token expires in $([math]::Floor($daysLeft)) days ($seValue). Rotate before expiry to avoid fleet-wide pause."
+                }
+            }
+        }
         return [PSCustomObject]@{
             CanProceed = $true
             Reason = 'Enabled'
             LastError = $null
+            SasExpiryWarning = $sasExpiryWarning
         }
     }
 
@@ -98,6 +112,7 @@ function Get-KillSwitchState {
         CanProceed = $false
         Reason = 'DisabledContent'
         LastError = "Blob body did not match expected literal 'enabled'."
+        SasExpiryWarning = $null
     }
 }
 

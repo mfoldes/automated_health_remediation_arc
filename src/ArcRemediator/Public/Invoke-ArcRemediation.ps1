@@ -159,6 +159,10 @@ function Invoke-ArcRemediation {
             return New-RunResult -Outcome $outcomeString -Detail $outcomeDetail -Row $row -LogIngestionFailed $false -Elapsed $sw
         }
 
+        if ($kill.PSObject.Properties.Name -contains 'SasExpiryWarning' -and $kill.SasExpiryWarning) {
+            Write-LocalLog -Level 'Warn' -Message $kill.SasExpiryWarning -Directory $LogDirectory
+        }
+
         # ---- 4. Local agent state + cloud-profile match -------------------
         $connectivity = Get-ArcConnectivitySettings -CloudProfile $cloudProfile -AzcmagentPath $AzcmagentPath
         $expectedAgentClouds = @()
@@ -245,7 +249,8 @@ function Invoke-ArcRemediation {
             -Config $cfg -State $state -Mode $mode -CloudProfile $cloudProfile `
             -Connectivity $connectivity -ResourceState $resourceState `
             -LocalRg $localRg -LocalName $localName -ArmAccessToken $armToken.AccessToken `
-            -EventTime $eventTime -StatePath $StatePath -AzcmagentPath $AzcmagentPath -Sw $sw
+            -EventTime $eventTime -StatePath $StatePath -LogDirectory $LogDirectory `
+            -AzcmagentPath $AzcmagentPath -Sw $sw
 
         $outcomeString     = $dispatch.OutcomeString
         $outcomeDetail     = $dispatch.OutcomeDetail

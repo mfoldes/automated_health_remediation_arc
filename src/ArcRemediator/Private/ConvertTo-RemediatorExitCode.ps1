@@ -64,6 +64,7 @@ function ConvertTo-RemediatorExitCode {
         'ConnectivityBlocked' { return 0 }
         'NeedsHuman' { return 0 }
         'BreakerTripped' { return 0 }
+        'ServiceRepairCooldown' { return 0 }
         'ResourceNotFound' { return 0 }
         'LogIngestionFailure' { return 0 } # secondary-only path covered above; primary cases also map to 0
         'ExpiredRejoinSuccess'{ return 0 }

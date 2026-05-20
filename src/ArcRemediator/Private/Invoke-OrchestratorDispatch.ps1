@@ -88,6 +88,7 @@ function Invoke-OrchestratorDispatch {
         [Parameter(Mandatory)] [string]$ArmAccessToken,
         [Parameter(Mandatory)] [datetime]$EventTime,
         [Parameter(Mandatory)] [string]$StatePath,
+        [Parameter()] [string]$LogDirectory,
         [Parameter()] [string]$AzcmagentPath,
         [Parameter(Mandatory)] [System.Diagnostics.Stopwatch]$Sw
     )
@@ -133,6 +134,18 @@ function Invoke-OrchestratorDispatch {
                 $outcomeDetail = 'Disconnected; Observe mode means no service repair attempted.'
                 break
             }
+            # Anti-flapping: skip service restart if last repair was within 48 hours.
+            if ($State.PSObject.Properties.Name -contains 'LastServiceRepairUtc' -and $State.LastServiceRepairUtc) {
+                $repairStart = [datetime]::MinValue
+                if ([datetime]::TryParse([string]$State.LastServiceRepairUtc, [ref]$repairStart)) {
+                    $repairAge = ((Get-Date).ToUniversalTime() - $repairStart.ToUniversalTime())
+                    if ($repairAge.TotalHours -lt 48) {
+                        $outcomeString = 'ServiceRepairCooldown'
+                        $outcomeDetail = "Disconnected; service repair within 48-hour cooldown (last repair $($State.LastServiceRepairUtc))."
+                        break
+                    }
+                }
+            }
             $actionsAttempted.Add('Repair-AgentServices')
             $repair = Repair-AgentServices -GatewayRequired:([bool]($Connectivity.ArcGatewayResourceId)) -Confirm:$false
             if ($repair.NeedsHuman) {
@@ -144,6 +157,7 @@ function Invoke-OrchestratorDispatch {
                 $actionsSuccessful.Add('Repair-AgentServices')
                 $outcomeString = 'ServicesRepaired'
                 $outcomeDetail = "Restarted services: $([string]::Join(', ', $repair.Restarted))."
+                $State.LastServiceRepairUtc = (Get-Date).ToUniversalTime().ToString('o')
             } else {
                 $outcomeString = 'ConnectivityBlocked'
                 $outcomeDetail = 'Disconnected and no stopped services to restart; likely network or proxy issue.'
@@ -184,11 +198,28 @@ function Invoke-OrchestratorDispatch {
                     }
                 }
             }
-            # Circuit breaker check.
+            # Circuit breaker check (with fleet-scale auto-reset via blob).
             if ([bool]$State.BreakerTripped) {
-                $outcomeString = 'BreakerTripped'
-                $outcomeDetail = "Circuit breaker tripped; not attempting Expired rejoin."
-                break
+                # Check for operator-issued fleet-wide breaker reset.
+                if ($Config.PSObject.Properties.Name -contains 'BreakerResetUrl' -and $Config.BreakerResetUrl) {
+                    $breakerReset = Get-BreakerResetState -BreakerResetUrl $Config.BreakerResetUrl -BreakerTrippedUtc $State.BreakerTrippedUtc
+                    if ($breakerReset.ShouldReset) {
+                        $State.ConsecutiveFailures = 0
+                        $State.BreakerTripped = $false
+                        $State.BreakerLastResetUtc = (Get-Date).ToUniversalTime().ToString('o')
+                        if ($LogDirectory) {
+                            Write-LocalLog -Level 'Info' -Message "Circuit breaker auto-reset via fleet blob (reset timestamp=$($breakerReset.ResetTimestamp))." -Directory $LogDirectory
+                        }
+                    } else {
+                        $outcomeString = 'BreakerTripped'
+                        $outcomeDetail = "Circuit breaker tripped; not attempting Expired rejoin."
+                        break
+                    }
+                } else {
+                    $outcomeString = 'BreakerTripped'
+                    $outcomeDetail = "Circuit breaker tripped; not attempting Expired rejoin."
+                    break
+                }
             }
             # Destructive path.
             $actionsAttempted.Add('Invoke-ExpiredRejoin')
@@ -222,6 +253,7 @@ function Invoke-OrchestratorDispatch {
             } else { 3 }
             if ($State.ConsecutiveFailures -ge $threshold) {
                 $State.BreakerTripped = $true
+                $State.BreakerTrippedUtc = (Get-Date).ToUniversalTime().ToString('o')
             }
         } elseif ($outcomeString -in @('Healthy', 'ServicesRepaired', 'ExpiredRejoinSuccess')) {
             $State.ConsecutiveFailures = 0

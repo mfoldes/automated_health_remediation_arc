@@ -262,14 +262,16 @@ cloud: $AzcmagentCloud
         return $path
     }
 
-    Set-Content -LiteralPath $path -Value $content -Encoding ASCII -NoNewline
-
     # Restrict ACL to SYSTEM + BUILTIN\Administrators + the current process
-    # identity. In production the remediator runs as SYSTEM so the third
-    # entry is redundant; in dev/test the current user keeps the rights
-    # needed to delete the file in the finally block on the calling
-    # function. Inheritance is disabled (SetAccessRuleProtection $true,
-    # do-not-copy=$false) so no inherited entry can widen access.
+    # identity. The ACL is built BEFORE the file is created so the
+    # FileStream constructor can apply it atomically — the file is born
+    # with restricted permissions and no TOCTOU window exists between
+    # creation and ACL application. In production the remediator runs as
+    # SYSTEM so the third entry is redundant; in dev/test the current
+    # user keeps the rights needed to delete the file in the finally
+    # block on the calling function. Inheritance is disabled
+    # (SetAccessRuleProtection $true, do-not-copy=$false) so no
+    # inherited entry can widen access.
     $acl = New-Object System.Security.AccessControl.FileSecurity
     $acl.SetAccessRuleProtection($true, $false)
     $system = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-18'
@@ -282,7 +284,28 @@ cloud: $AzcmagentCloud
     if ($current -and $current.Value -ne $system.Value) {
         $acl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($current, $rights, $type)))
     }
-    Set-Acl -LiteralPath $path -AclObject $acl
+
+    # Create the file atomically with the restricted ACL. CreateNew
+    # ensures we never overwrite an existing file (prevents symlink /
+    # overwrite attacks). FileShare::None locks the file exclusively
+    # while we write the secret content.
+    $bytes = [System.Text.Encoding]::ASCII.GetBytes($content)
+    $fs = $null
+    try {
+        $fs = [System.IO.FileStream]::new(
+            $path,
+            [System.IO.FileMode]::CreateNew,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            [System.IO.FileShare]::None,
+            4096,
+            [System.IO.FileOptions]::None,
+            $acl
+        )
+        $fs.Write($bytes, 0, $bytes.Length)
+        $fs.Flush()
+    } finally {
+        if ($fs) { $fs.Dispose() }
+    }
 
     return $path
 }
