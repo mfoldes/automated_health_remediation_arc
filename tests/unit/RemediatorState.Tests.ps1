@@ -14,6 +14,7 @@ Describe 'New-DefaultRemediatorState' {
     It 'returns an object with every documented field at its default' {
         InModuleScope ArcRemediator {
             $s = New-DefaultRemediatorState
+            $s.SchemaVersion | Should -Be 1
             $s.LastSuccessfulRunUtc | Should -BeNullOrEmpty
             $s.ConsecutiveFailures | Should -Be 0
             $s.BreakerTripped | Should -BeFalse
@@ -38,6 +39,34 @@ Describe 'Get-RemediatorState' {
                 $s = Get-RemediatorState -Path $p
                 $s.ConsecutiveFailures | Should -Be 0
                 $s.BreakerTripped | Should -BeFalse
+            }
+        }
+    }
+
+    Context 'SchemaVersion upcast' {
+        It 'stamps SchemaVersion=1 on a state file written before versioning was introduced' {
+            $path = Join-Path $TestDrive ('state-legacy-{0}.json' -f ([guid]::NewGuid()))
+            # Simulate a pre-versioning state.json (no SchemaVersion key)
+            '{"LastSuccessfulRunUtc":null,"ConsecutiveFailures":0,"BreakerTripped":false}' |
+                Set-Content -LiteralPath $path -Encoding UTF8
+            InModuleScope ArcRemediator -Parameters @{ p = $path } {
+                param($p)
+                $s = Get-RemediatorState -Path $p
+                $s.SchemaVersion | Should -Be 1
+                $s.ConsecutiveFailures | Should -Be 0
+            }
+        }
+
+        It 'preserves SchemaVersion=1 on an already-versioned state file' {
+            $path = Join-Path $TestDrive ('state-versioned-{0}.json' -f ([guid]::NewGuid()))
+            '{"SchemaVersion":1,"LastSuccessfulRunUtc":null,"ConsecutiveFailures":2,"BreakerTripped":true}' |
+                Set-Content -LiteralPath $path -Encoding UTF8
+            InModuleScope ArcRemediator -Parameters @{ p = $path } {
+                param($p)
+                $s = Get-RemediatorState -Path $p
+                $s.SchemaVersion | Should -Be 1
+                $s.ConsecutiveFailures | Should -Be 2
+                $s.BreakerTripped | Should -BeTrue
             }
         }
     }

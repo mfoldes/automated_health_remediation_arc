@@ -86,6 +86,7 @@ function New-LawAndTable {
     $columns = @(
         @{ name = 'TimeGenerated'; type = 'datetime' },
         @{ name = 'EventTimeUtc'; type = 'datetime' },
+        @{ name = 'SchemaVersion'; type = 'string' },
         @{ name = 'Hostname'; type = 'string' },
         @{ name = 'Fqdn'; type = 'string' },
         @{ name = 'CloudProfile'; type = 'string' },

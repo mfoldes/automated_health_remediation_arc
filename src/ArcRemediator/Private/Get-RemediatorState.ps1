@@ -39,8 +39,19 @@ function Get-RemediatorState {
     }
 
     try {
-        return ($raw | ConvertFrom-Json -ErrorAction Stop)
+        $state = ($raw | ConvertFrom-Json -ErrorAction Stop)
     } catch {
         throw "Remediator state file at '$Path' contains invalid JSON: $($_.Exception.Message)"
     }
+
+    # Upcast state files written by older versions that pre-date SchemaVersion.
+    # The only safe upcast is to stamp the version; no field deltas exist yet.
+    if (-not $state.PSObject.Properties['SchemaVersion']) {
+        $state | Add-Member -NotePropertyName 'SchemaVersion' -NotePropertyValue 0
+    }
+    if ($state.SchemaVersion -lt 1) {
+        $state.SchemaVersion = 1
+    }
+
+    return $state
 }

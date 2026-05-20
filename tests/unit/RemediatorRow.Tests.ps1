@@ -88,6 +88,7 @@ Describe 'New-RemediatorRow' {
                 @($row['ActionsSuccessful']).Count | Should -Be 0
                 $row['BreakerTripped'] | Should -BeFalse
                 $row['ConsecutiveFailures'] | Should -Be 0
+                $row['SchemaVersion'] | Should -Be '1'
             }
         }
     }

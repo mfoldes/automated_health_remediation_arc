@@ -21,6 +21,7 @@ function New-DefaultRemediatorState {
     param()
 
     return [PSCustomObject]@{
+        SchemaVersion = 1
         LastSuccessfulRunUtc = $null
         ConsecutiveFailures = 0
         BreakerTripped = $false

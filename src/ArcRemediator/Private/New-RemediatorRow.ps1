@@ -208,8 +208,15 @@ function New-RemediatorRow {
     $truncatedError = ConvertTo-TruncatedString -Value $ErrorMessage -Max $MaxErrorChars
     $stackTraceHash = if ([string]::IsNullOrEmpty($LocalStackTrace)) { $null } else { ConvertTo-Sha256Hex -Value $LocalStackTrace }
 
+    # Increment when the LAW table schema gets a new column or a column changes
+    # type.  Old rows in the table will have SchemaVersion = $null (before this
+    # version was introduced).  KQL can gate on 'SchemaVersion == "1"' to avoid
+    # mixing old and new shapes.
+    $script:RowSchemaVersion = '1'
+
     return [ordered]@{
         EventTimeUtc = $EventTimeUtc.ToUniversalTime().ToString('o')
+        SchemaVersion = $script:RowSchemaVersion
         Hostname = $hostname
         Fqdn = $fqdn
         CloudProfile = $CloudProfile

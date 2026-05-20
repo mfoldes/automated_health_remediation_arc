@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
   `SelfDeadlineHit:`. No cooldown marker is written; the next scheduled
   invocation will retry normally. This prevents Task Scheduler from killing
   the process mid-rejoin when the `ExecutionTimeLimit` (1 hr) is reached.
+- **`SchemaVersion` column in `ArcRemediation_CL` LAW table** (Gap 6):
+  `azure-setup/private/New-LawAndTable.ps1` now declares `SchemaVersion`
+  (type `string`) immediately after `EventTimeUtc`. New rows have
+  `SchemaVersion = '1'`; historical rows will have `$null`. KQL workbook
+  queries can filter `SchemaVersion == '1'` to gate on the current schema.
+  The DCR `transformKql` (`source | extend TimeGenerated = EventTimeUtc`)
+  passes `SchemaVersion` through untouched — no DCR change required.
+- **`SchemaVersion` in local `state.json`** (Gap 7):
+  `New-DefaultRemediatorState` now includes `SchemaVersion = 1` as the
+  first property. `Get-RemediatorState` upcasts legacy state files that
+  predate versioning: a missing `SchemaVersion` is treated as `0` and
+  stamped to `1` on next read. No data is lost; the upcast is additive.
 
 ### Changed
 
