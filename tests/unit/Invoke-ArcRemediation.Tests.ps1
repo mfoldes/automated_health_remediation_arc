@@ -489,4 +489,66 @@ Describe 'Invoke-ArcRemediation' {
             }
         }
     }
+
+    Context 'Self-deadline guard on Expired Enforce path' {
+        It 'returns Aborted (not ExpiredRejoinSuccess) when MaxRuntimeMinutes=0 and machine is Expired' {
+            $layout = New-EphemeralLayout
+            try {
+                # Write config with MaxRuntimeMinutes=0 so any positive elapsed time triggers the guard.
+                $cfg = [ordered]@{
+                    CloudProfile = 'Commercial'
+                    MaxRuntimeMinutes = 0
+                    ArcCredential = [ordered]@{
+                        TenantId='11111111-1111-1111-1111-111111111111'; ClientId='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+                        CredentialType='ClientSecret'; ClientSecret='lab-secret'; CertificateThumbprint=$null
+                    }
+                    MonitorCredential = [ordered]@{ UseArcCredential=$true; TenantId=$null; ClientId=$null; CredentialType=$null; ClientSecret=$null; CertificateThumbprint=$null }
+                    SubscriptionId = '00000000-0000-0000-0000-000000000000'
+                    ScopedResourceGroups = @()
+                    LogIngestionEndpoint = 'https://fake-dcr.eastus-1.ingest.monitor.azure.com'
+                    DcrImmutableId = 'dcr-imm-test'
+                    StreamName = 'Custom-ArcRemediation'
+                    KillSwitchUrl = 'https://fake.blob.core.windows.net/arc-remediator/kill-switch.txt?sig=fake&sp=r'
+                    PrivateLinkScopeResourceId = $null; ArcGatewayResourceId = $null; ProxyUrl = $null
+                    EnableAutomaticAgentUpgrade = $false; CircuitBreakerFailureThreshold = 3
+                    Mode = 'Enforce'; Version = '1.0.0'
+                }
+                ($cfg | ConvertTo-Json -Depth 10) | Set-Content -LiteralPath $layout.Config -Encoding UTF8
+
+                InModuleScope ArcRemediator -Parameters @{ cfgPath = $layout.Config; sp = $layout.State; logs = $layout.Logs } {
+                    param($cfgPath, $sp, $logs)
+
+                    Mock Get-DecryptedConfig { Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json }
+                    Mock Get-KillSwitchState { [PSCustomObject]@{ CanProceed=$true; Reason='Enabled'; LastError=$null } }
+                    Mock Get-ArcConnectivitySettings {
+                        [PSCustomObject]@{ Proxy=$null; PrivateLinkScopeResourceId=$null; ArcGatewayResourceId=$null
+                            Cloud='AzureCloud'; SubscriptionId='00000000-0000-0000-0000-000000000000'
+                            ResourceGroupName='rg-prod'; ResourceName='host-1'; Location='eastus'
+                            AgentVersion='1.45.0'; AgentStatus='Expired'
+                            IsClusterBacked=$false; ClusterEvidence=@(); HasConfigMismatch=$false
+                            ConfigMismatchReason=$null; NeedsHuman=$false; NeedsHumanReason=$null
+                            ParseFailed=$false; RawJson='{}'
+                        }
+                    }
+                    Mock Get-AzureToken { [PSCustomObject]@{ Purpose=$Purpose; AccessToken='tok'; TokenType='Bearer'; ExpiresOnUtc=(Get-Date).AddHours(1) } }
+                    Mock Get-AzureResourceState { [PSCustomObject]@{ Classification='Expired'; StatusCode=200; ETag='W/"x"'; Tags=$null; Location='eastus'; Name='host-1'; Raw=$null; ErrorMessage=$null } }
+                    Mock Invoke-AzcmagentCheck { [PSCustomObject]@{ rawOutput=''; exitCode=0; connectionType='public'; reachableUrls=@(); unreachableUrls=@(); usesProxy=$false; usesPrivateLink=$false; usesGateway=$false; sawAny429=$false; parseFailed=$true } }
+                    Mock Test-AgentServices { [PSCustomObject]@{ Services=@(); MissingRequired=@(); StoppedRequired=@(); NeedsHuman=$false; NeedsHumanReason=$null } }
+                    Mock Get-AgentCertificateProbe { [PSCustomObject]@{ Status='OK' } }
+                    Mock Get-TimeSyncProbe { [PSCustomObject]@{ Status='OK' } }
+                    Mock Get-AgentVersionProbe { [PSCustomObject]@{ Status='OK' } }
+                    Mock Invoke-ExpiredRejoin { throw 'Self-deadline guard must prevent this call' }
+                    Mock Send-LogAnalytics { [PSCustomObject]@{ Success=$true; StatusCode=204; RowCount=1; ErrorMessage=$null } }
+
+                    $r = Invoke-ArcRemediation -ConfigPath $cfgPath -StatePath $sp -LogDirectory $logs
+
+                    $r.Outcome | Should -Be 'Aborted'
+                    $r.OutcomeDetail | Should -Match 'SelfDeadlineHit'
+                    Should -Invoke Invoke-ExpiredRejoin -Times 0 -Exactly
+                }
+            } finally {
+                Remove-Item -LiteralPath $layout.Root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
 }

@@ -103,8 +103,10 @@ function Invoke-ExpiredRejoin {
             %ProgramData%\ArcRemediator\state.json.
 
         .PARAMETER DeleteTimeoutSec
-            Total budget for ARM DELETE + async polling. Default 1800
-            (30 min).
+            Total budget for ARM DELETE + async polling. Default 900 s
+            (15 min). Microsoft's p99 for hybridCompute/machines DELETE is
+            under 5 min; 15 min allows for transient polling retries while
+            still leaving margin inside a 1-hour task ExecutionTimeLimit.
 
         .PARAMETER ConnectTimeoutSec
             Timeout for azcmagent connect. Default 300 s.
@@ -148,7 +150,7 @@ function Invoke-ExpiredRejoin {
         [Parameter()] [string]$PreservedLocation,
         [Parameter()] [switch]$EnableAutomaticUpgrade,
         [Parameter()] [string]$StatePath = (Join-Path $env:ProgramData 'ArcRemediator\state.json'),
-        [Parameter()] [int]$DeleteTimeoutSec = 1800,
+        [Parameter()] [int]$DeleteTimeoutSec = 900,
         [Parameter()] [int]$ConnectTimeoutSec = 300,
         [Parameter()] [string]$AzcmagentPath
     )

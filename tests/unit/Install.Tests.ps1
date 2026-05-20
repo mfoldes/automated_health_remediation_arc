@@ -134,6 +134,19 @@ Describe 'Install.ps1' {
             }
         }
     }
+
+    Context 'Scheduled task parameters in source' {
+        It 'Install.ps1 registers the scheduled task with ExecutionTimeLimit of 1 hour (not 30 minutes)' {
+            # The tests use -SkipTaskRegistration so Register-ScheduledTask is never called at
+            # test time. We assert the source-code intent directly: the script must pass
+            # -Hours 1 to New-TimeSpan when building the task settings object, ensuring the
+            # Task Scheduler budget comfortably exceeds the 15-min DeleteTimeoutSec default
+            # used by the destructive ExpiredRejoin path.
+            $installSource = Get-Content -LiteralPath $script:Install -Raw
+            $installSource | Should -Match '\-Hours\s+1'
+            $installSource | Should -Not -Match '\-Minutes\s+30'
+        }
+    }
 }
 
 Describe 'Uninstall.ps1' {

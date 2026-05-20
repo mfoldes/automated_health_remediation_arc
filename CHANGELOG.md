@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
 - `SECURITY.md` with the project's vulnerability-reporting policy.
 - `CHANGELOG.md` (this file) and `tests/unit/Changelog.Tests.ps1`
   asserting structure and version alignment with the module manifest.
+- **Self-deadline guard in `Invoke-ArcRemediation`** (Gap 8): before
+  entering the destructive Expired-rejoin path, the orchestrator now checks
+  `$sw.Elapsed.TotalMinutes` against a configurable `MaxRuntimeMinutes`
+  (config-file key, default 45 min). If the deadline has passed, the run
+  returns `Outcome='Aborted'` with `OutcomeDetail` starting with
+  `SelfDeadlineHit:`. No cooldown marker is written; the next scheduled
+  invocation will retry normally. This prevents Task Scheduler from killing
+  the process mid-rejoin when the `ExecutionTimeLimit` (1 hr) is reached.
 
 ### Changed
 
@@ -63,6 +71,15 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
   bypasses that PS 5.1 bug. Async `ReadToEndAsync()` tasks are explicitly
   `Wait()`ed after `WaitForExit()` to drain buffered output before reading
   results.
+- **`Invoke-ExpiredRejoin` `$DeleteTimeoutSec` default lowered from 1800 s to
+  900 s** (15 min) (Gap 8). Microsoft's documented p99 for
+  `hybridCompute/machines` ARM DELETE is under 5 min; 900 s provides three
+  times that margin for transient retries while leaving room for the 1-hr
+  task budget.
+- **`Install.ps1` scheduled-task `ExecutionTimeLimit` raised from 30 min to
+  1 hour** (Gap 8). The previous 30-min limit was shorter than the 30-min
+  ARM-delete timeout, making it possible for Task Scheduler to kill the
+  process before the rejoin sequence completed.
 
 ## [1.0.0-preview] - 2026-05-19
 

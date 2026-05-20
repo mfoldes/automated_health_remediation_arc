@@ -68,6 +68,15 @@ function Invoke-ArcRemediation {
             Override path to azcmagent.exe. Used by tests; production
             picks the default install path automatically.
 
+        .NOTES
+            Config-file key MaxRuntimeMinutes (optional, default 45): the
+            orchestrator will refuse to enter the destructive Expired rejoin
+            path if the run has already been running for this many minutes.
+            This is a guard against Task Scheduler killing the process mid-rejoin
+            when the task ExecutionTimeLimit (1 hr) would otherwise be hit.
+            Set this in the DPAPI-wrapped config.json alongside Mode and
+            CircuitBreakerFailureThreshold.
+
         .OUTPUTS
             A PSCustomObject with:
               Outcome             string  Healthy, FleetPaused, NeedsHuman, etc.
@@ -297,6 +306,20 @@ function Invoke-ArcRemediation {
                 if ($connectivity.IsClusterBacked) {
                     $outcomeString = 'NeedsHuman'
                     $outcomeDetail = [string]$connectivity.NeedsHumanReason
+                    break
+                }
+                # Self-deadline: refuse to enter the destructive path if the run
+                # has already consumed more than MaxRuntimeMinutes.  This prevents
+                # Task Scheduler from killing the process mid-rejoin when the task
+                # ExecutionTimeLimit (1 hr) is reached.  Default 45 min leaves
+                # a 15-minute margin for the rejoin sequence itself.
+                $maxRuntimeMin = 45
+                if ($cfg.PSObject.Properties.Name -contains 'MaxRuntimeMinutes' -and $null -ne $cfg.MaxRuntimeMinutes) {
+                    $maxRuntimeMin = [int]$cfg.MaxRuntimeMinutes
+                }
+                if ($sw.Elapsed.TotalMinutes -ge $maxRuntimeMin) {
+                    $outcomeString = 'Aborted'
+                    $outcomeDetail = "SelfDeadlineHit: run elapsed $([int]$sw.Elapsed.TotalMinutes) min >= MaxRuntimeMinutes=$maxRuntimeMin; deferring destructive remediation to next scheduled run."
                     break
                 }
                 # Cooldown check: no more than one attempt per 7 days.

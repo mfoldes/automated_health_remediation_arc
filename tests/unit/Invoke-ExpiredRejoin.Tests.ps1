@@ -263,4 +263,49 @@ Describe 'Invoke-ExpiredRejoin' {
             }
         }
     }
+
+    Context 'Default parameter values' {
+        It 'default DeleteTimeoutSec is 900 (15 min, fits inside 1-hr task budget)' {
+            InModuleScope ArcRemediator -Parameters @{ cs = New-HealthyConnectivity; cred = New-CertCredential; sp = New-EphemeralStatePath } {
+                param($cs, $cred, $sp)
+                # Pre-destructive re-read returns Expired so the call reaches Remove-ArcResource.
+                Mock Get-AzureResourceState -MockWith {
+                    [PSCustomObject]@{ Classification = 'Expired'; StatusCode = 200; ETag = 'W/"pre"'; Tags = $null; Location = 'eastus'; Name = 'm'; Raw = $null; ErrorMessage = $null }
+                }
+                Mock Remove-ArcResource -MockWith {
+                    param($TimeoutSec)
+                    $env:T_DELETE_TIMEOUT = "$TimeoutSec"
+                    [PSCustomObject]@{ Success=$true; InitialStatusCode=204; AsyncOperationUrl=$null; AsyncResult=$null; Verified404=$true; ElapsedSeconds=1; ErrorMessage=$null }
+                }
+                Mock Invoke-AzcmagentDisconnect { [PSCustomObject]@{ ExitCode=0; Stdout=''; Stderr=''; TimedOut=$false; Duration=[timespan]::FromSeconds(1) } }
+                Mock Invoke-AzcmagentConnect {
+                    [PSCustomObject]@{
+                        ProcessResult = [PSCustomObject]@{ ExitCode=0; Stdout=''; Stderr=''; TimedOut=$false; Duration=[timespan]::FromSeconds(1) }
+                        UsedConfigFile=$false; GatewayHonored=$false; AutomaticUpgradeHonored=$false; WhatIf=$false
+                    }
+                }
+                Mock Get-AzureResourceState -MockWith {
+                    # second call (final ARM verify after rejoin) should return Connected
+                    param()
+                    if ($env:T_DFLT_CALL -eq '1') {
+                        $env:T_DFLT_CALL = '2'
+                        return [PSCustomObject]@{ Classification = 'Expired'; StatusCode = 200; ETag = 'W/"pre"'; Tags = $null; Location = 'eastus'; Name = 'm'; Raw = $null; ErrorMessage = $null }
+                    }
+                    $env:T_DFLT_CALL = '2'
+                    [PSCustomObject]@{ Classification = 'Connected'; StatusCode = 200; ETag = 'W/"post"'; Tags = $null; Location = 'eastus'; Name = 'm'; Raw = $null; ErrorMessage = $null }
+                }
+                Mock Set-AzureResourceTags { [PSCustomObject]@{ Success=$true; Classification='Connected'; Conflict=$false; ETag='W/"post"'; AppliedTags=@{}; ErrorMessage=$null } }
+                $env:T_DFLT_CALL = '0'
+                $env:T_DELETE_TIMEOUT = ''
+
+                # Call WITHOUT specifying DeleteTimeoutSec to exercise the default.
+                Invoke-ExpiredRejoin -CloudProfile (Get-CloudProfile -Name 'Commercial') `
+                    -ArcCredential $cred -AccessToken 'tok' `
+                    -SubscriptionId 'sub' -ResourceGroupName 'rg' -MachineName 'm' `
+                    -ConnectivitySettings $cs -StatePath $sp -Confirm:$false | Out-Null
+
+                $env:T_DELETE_TIMEOUT | Should -Be '900'
+            }
+        }
+    }
 }

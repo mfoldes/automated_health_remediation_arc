@@ -177,7 +177,7 @@ function Register-RemediatorScheduledTask {
                     -DontStopOnIdleEnd `
                     -DontStopIfGoingOnBatteries `
                     -AllowStartIfOnBatteries `
-                    -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
+                    -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
                     -RestartCount 0
     $settings.RestartInterval = $null
     $settings.RestartCount = 0
