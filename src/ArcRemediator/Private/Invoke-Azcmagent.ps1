@@ -81,84 +81,85 @@ function Invoke-Azcmagent {
         throw 'Invoke-Azcmagent: azcmagent.exe not found. Install the Azure Connected Machine Agent or pass -AzcmagentPath.'
     }
 
-    $stdoutFile = [System.IO.Path]::GetTempFileName()
-    $stderrFile = [System.IO.Path]::GetTempFileName()
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    # Use System.Diagnostics.Process directly (not Start-Process cmdlet).
+    # On Windows PowerShell 5.1 Desktop, Start-Process -PassThru combined with
+    # -RedirectStandardOutput/-RedirectStandardError returns a process handle
+    # where ExitCode is always $null, even after WaitForExit().  Using the .NET
+    # class directly bypasses that PS 5.1 bug and works identically on PS 7.
+    #
+    # Async stream reads (ReadToEndAsync) avoid the stdout/stderr deadlock that
+    # synchronous ReadToEnd() causes when both buffers fill simultaneously.
+    $psi = New-Object -TypeName System.Diagnostics.ProcessStartInfo
+    $psi.FileName               = $AzcmagentPath
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+
+    if (@($Arguments).Count -gt 0) {
+        # Build the command-line string.  Quote tokens that contain whitespace;
+        # azcmagent's standard argv (verbs, flags, GUIDs, resource names) never
+        # requires quoting under normal use.
+        $psi.Arguments = ($Arguments | ForEach-Object {
+            if ($_ -match '\s') { '"' + ($_ -replace '"', '\"') + '"' }
+            else                 { $_ }
+        }) -join ' '
+    }
+
+    $sw       = [System.Diagnostics.Stopwatch]::StartNew()
     $timedOut = $false
     $exitCode = -1
+    $stdout   = ''
+    $stderr   = ''
+
     $proc = $null
-
     try {
-        $startArgs = @{
-            FilePath = $AzcmagentPath
-            NoNewWindow = $true
-            PassThru = $true
-            RedirectStandardOutput = $stdoutFile
-            RedirectStandardError = $stderrFile
-        }
-        if (@($Arguments).Count -gt 0) {
-            $startArgs.ArgumentList = $Arguments
-        }
-
         try {
-            $proc = Start-Process @startArgs
+            $proc = [System.Diagnostics.Process]::Start($psi)
         } catch {
-            # Secret hygiene: never echo argv. Surface only the underlying
-            # transport / start error message (e.g. file-not-found, access denied).
+            # Secret hygiene: never echo argv.
             throw "Invoke-Azcmagent: process start failed: $($_.Exception.Message)"
         }
+        if ($null -eq $proc) {
+            throw 'Invoke-Azcmagent: Process.Start() returned null (process reuse not supported).'
+        }
+
+        # Start async reads before WaitForExit so output buffers never fill and
+        # block the child process.
+        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+        $stderrTask = $proc.StandardError.ReadToEndAsync()
 
         $timeoutMs = [int]([Math]::Min([int]::MaxValue, $TimeoutSec * 1000))
         if (-not $proc.WaitForExit($timeoutMs)) {
-            try {
-                $proc.Kill()
-            } catch {
-                # Process may have exited between the WaitForExit timeout and
-                # the Kill() call. That race is harmless; TimedOut is still
-                # correct because the wall-clock budget was exceeded.
-                $null = $_
-            }
-            $proc.WaitForExit()
+            try { $proc.Kill() } catch { $null = $_ }
             $timedOut = $true
-        } else {
-            # Even when WaitForExit(ms) signals completion, call the no-arg
-            # overload to flush async stdout/stderr I/O handles before reading
-            # ExitCode.  Required on Windows PowerShell 5.1 Desktop where
-            # Start-Process -RedirectStandard* uses background threads that
-            # may not finish before the timed overload returns $true.
-            $proc.WaitForExit()
         }
+
+        # No-arg WaitForExit flushes event-based async handlers and ensures the
+        # redirected streams reach EOF before we read ExitCode.
+        $proc.WaitForExit()
         $exitCode = $proc.ExitCode
+
+        # Give the async tasks up to 5 s to drain any remaining buffered data.
+        # After WaitForExit() the streams are at EOF; tasks should complete
+        # almost immediately.  Explicit Wait() before reading .Result avoids the
+        # race where IsCompleted is still false at the moment we check.
+        try { [void]$stdoutTask.Wait(5000) } catch { $null = $_ }
+        try { [void]$stderrTask.Wait(5000) } catch { $null = $_ }
+
+        $stdout = try { $stdoutTask.Result } catch { '' }
+        $stderr = try { $stderrTask.Result } catch { '' }
+        if ($null -eq $stdout) { $stdout = '' }
+        if ($null -eq $stderr) { $stderr = '' }
     } finally {
         $sw.Stop()
-        if ($proc) {
-            try {
-                $proc.Dispose()
-            } catch {
-                # Dispose can throw if the handle is already released; never
-                # let cleanup mask the wrapper's real return value.
-                $null = $_
-            }
-        }
+        if ($null -ne $proc) { try { $proc.Dispose() } catch { $null = $_ } }
     }
-
-    $stdout = ''
-    $stderr = ''
-    if (Test-Path -LiteralPath $stdoutFile) {
-        $raw = Get-Content -LiteralPath $stdoutFile -Raw -ErrorAction SilentlyContinue
-        if ($null -ne $raw) { $stdout = $raw }
-    }
-    if (Test-Path -LiteralPath $stderrFile) {
-        $raw = Get-Content -LiteralPath $stderrFile -Raw -ErrorAction SilentlyContinue
-        if ($null -ne $raw) { $stderr = $raw }
-    }
-    Remove-Item -LiteralPath $stdoutFile -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $stderrFile -Force -ErrorAction SilentlyContinue
 
     return [PSCustomObject]@{
         ExitCode = $exitCode
-        Stdout = $stdout
-        Stderr = $stderr
+        Stdout   = $stdout
+        Stderr   = $stderr
         TimedOut = $timedOut
         Duration = $sw.Elapsed
     }

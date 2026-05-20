@@ -40,12 +40,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
 - `tests/unit/Build.Tests.ps1`: Normalize ZIP entry path separators via
   `-replace '\\','/'` before `Should -Contain` assertions. On PS 5.1 Desktop,
   `ZipEntry.FullName` uses backslashes; PS 7 always uses forward slashes.
-- `src/ArcRemediator/Private/Invoke-Azcmagent.ps1`: Added blocking
-  `$proc.WaitForExit()` in the non-timeout code path. On Windows PowerShell
-  5.1, the timed `WaitForExit(ms)` overload may return `$true` before async
-  stdout/stderr handles are fully flushed, causing `$proc.ExitCode` to return
-  `$null`. The no-arg overload guarantees all handles are closed before
-  `ExitCode` is read.
+- `src/ArcRemediator/Private/Invoke-Azcmagent.ps1`: Replaced `Start-Process
+  -PassThru -RedirectStandard*` with direct `[System.Diagnostics.Process]::Start()`
+  via `ProcessStartInfo`. On Windows PowerShell 5.1 Desktop (.NET Framework),
+  `Start-Process -PassThru` combined with stream redirection returns a process
+  handle where `ExitCode` is always `$null`. Using the .NET class directly
+  bypasses that PS 5.1 bug. Async `ReadToEndAsync()` tasks are explicitly
+  `Wait()`ed after `WaitForExit()` to drain buffered output before reading
+  results.
 
 ## [1.0.0-preview] - 2026-05-19
 
