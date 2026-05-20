@@ -193,3 +193,49 @@ Describe 'New-RemediatorRow' {
         }
     }
 }
+
+Describe 'New-RemediatorRow Context parameter set' {
+    Context 'Context hashtable produces identical row to Explicit parameter set' {
+        It 'Context set with required keys returns same OutcomeString as Explicit set' {
+            InModuleScope ArcRemediator {
+                $ts = [datetime]::UtcNow
+
+                $explicitRow = New-RemediatorRow -EventTimeUtc $ts `
+                    -CloudProfile 'Commercial' -ScriptMode 'Observe' -Outcome 'Healthy' `
+                    -OutcomeDetail 'All good'
+
+                $ctx = @{
+                    EventTimeUtc   = $ts
+                    CloudProfile   = 'Commercial'
+                    ScriptMode     = 'Observe'
+                    Outcome        = 'Healthy'
+                    OutcomeDetail  = 'All good'
+                }
+                $contextRow = New-RemediatorRow -Context $ctx
+
+                $contextRow['Outcome']        | Should -Be $explicitRow['Outcome']
+                $contextRow['OutcomeDetail']  | Should -Be $explicitRow['OutcomeDetail']
+                $contextRow['CloudProfile']   | Should -Be $explicitRow['CloudProfile']
+                $contextRow['ScriptMode']     | Should -Be $explicitRow['ScriptMode']
+                $contextRow['SchemaVersion']  | Should -Be '1'
+            }
+        }
+
+        It 'Context set propagates ActionsAttempted correctly' {
+            InModuleScope ArcRemediator {
+                $ctx = @{
+                    EventTimeUtc      = [datetime]::UtcNow
+                    CloudProfile      = 'AzureGovernmentDoD'
+                    ScriptMode        = 'Enforce'
+                    Outcome           = 'ServicesRepaired'
+                    ActionsAttempted  = @('Repair-AgentServices')
+                    ActionsSuccessful = @('Repair-AgentServices')
+                }
+                $row = New-RemediatorRow -Context $ctx
+
+                $row['ActionsAttempted']  | Should -Be 'Repair-AgentServices'
+                $row['ActionsSuccessful'] | Should -Be 'Repair-AgentServices'
+            }
+        }
+    }
+}

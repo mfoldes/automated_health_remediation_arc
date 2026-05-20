@@ -100,35 +100,64 @@ function New-RemediatorRow {
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Pure factory: returns a hashtable. Performs no state change.')]
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Explicit')]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)] [datetime]$EventTimeUtc,
-        [Parameter(Mandatory)] [ValidateSet('Commercial', 'AzureGovernmentDoD')] [string]$CloudProfile,
-        [Parameter(Mandatory)] [ValidateSet('Observe', 'Enforce')] [string]$ScriptMode,
-        [Parameter(Mandatory)] [string]$Outcome,
-        [Parameter()] [string]$OutcomeDetail,
-        [Parameter()] [PSObject]$ResourceState,
-        [Parameter()] [PSObject]$ConnectivitySettings,
-        [Parameter()] [string]$SubscriptionId,
-        [Parameter()] [string]$ResourceGroupName,
-        [Parameter()] [string]$MachineName,
-        [Parameter()] [int]$RunDurationMs = 0,
-        [Parameter()] [string[]]$ActionsAttempted = @(),
-        [Parameter()] [string[]]$ActionsSuccessful = @(),
-        [Parameter()] [PSObject]$ProbeAzcmagentCheck,
-        [Parameter()] [PSObject]$ProbeServices,
-        [Parameter()] [PSObject]$ProbeCertificate,
-        [Parameter()] [PSObject]$ProbeTimeSync,
-        [Parameter()] [PSObject]$ProbeAgentVersion,
-        [Parameter()] [PSObject]$RemediatorState,
-        [Parameter()] [string]$ErrorMessage,
-        [Parameter()] [string]$ErrorType,
-        [Parameter()] [string]$LocalStackTrace,
-        [Parameter()] [string]$ScriptVersion,
-        [Parameter()] [int]$MaxDetailChars = 500,
-        [Parameter()] [int]$MaxErrorChars = 1000
+        # ---- Explicit parameter set (original interface; always backward compatible) ----
+        [Parameter(Mandatory, ParameterSetName = 'Explicit')] [datetime]$EventTimeUtc,
+        [Parameter(Mandatory, ParameterSetName = 'Explicit')] [ValidateSet('Commercial', 'AzureGovernmentDoD')] [string]$CloudProfile,
+        [Parameter(Mandatory, ParameterSetName = 'Explicit')] [ValidateSet('Observe', 'Enforce')] [string]$ScriptMode,
+        [Parameter(Mandatory, ParameterSetName = 'Explicit')] [string]$Outcome,
+        [Parameter(ParameterSetName = 'Explicit')] [string]$OutcomeDetail,
+        [Parameter(ParameterSetName = 'Explicit')] [PSObject]$ResourceState,
+        [Parameter(ParameterSetName = 'Explicit')] [PSObject]$ConnectivitySettings,
+        [Parameter(ParameterSetName = 'Explicit')] [string]$SubscriptionId,
+        [Parameter(ParameterSetName = 'Explicit')] [string]$ResourceGroupName,
+        [Parameter(ParameterSetName = 'Explicit')] [string]$MachineName,
+        [Parameter(ParameterSetName = 'Explicit')] [int]$RunDurationMs = 0,
+        [Parameter(ParameterSetName = 'Explicit')] [string[]]$ActionsAttempted = @(),
+        [Parameter(ParameterSetName = 'Explicit')] [string[]]$ActionsSuccessful = @(),
+        [Parameter(ParameterSetName = 'Explicit')] [PSObject]$ProbeAzcmagentCheck,
+        [Parameter(ParameterSetName = 'Explicit')] [PSObject]$ProbeServices,
+        [Parameter(ParameterSetName = 'Explicit')] [PSObject]$ProbeCertificate,
+        [Parameter(ParameterSetName = 'Explicit')] [PSObject]$ProbeTimeSync,
+        [Parameter(ParameterSetName = 'Explicit')] [PSObject]$ProbeAgentVersion,
+        [Parameter(ParameterSetName = 'Explicit')] [PSObject]$RemediatorState,
+        [Parameter(ParameterSetName = 'Explicit')] [string]$ErrorMessage,
+        [Parameter(ParameterSetName = 'Explicit')] [string]$ErrorType,
+        [Parameter(ParameterSetName = 'Explicit')] [string]$LocalStackTrace,
+        [Parameter(ParameterSetName = 'Explicit')] [string]$ScriptVersion,
+        [Parameter(ParameterSetName = 'Explicit')] [int]$MaxDetailChars = 500,
+        [Parameter(ParameterSetName = 'Explicit')] [int]$MaxErrorChars = 1000,
+
+        # ---- Context parameter set (orchestrator-friendly; receives run-context hashtable) ----
+        # Keys must match the Explicit parameter names above.  The function
+        # expands them onto local variables so the rest of the body is shared.
+        [Parameter(Mandatory, ParameterSetName = 'Context')] [hashtable]$Context
     )
+
+    if ($PSCmdlet.ParameterSetName -eq 'Context') {
+        # Expand allowlisted keys from $Context onto local variables.
+        $allowed = @(
+            'EventTimeUtc','CloudProfile','ScriptMode','Outcome','OutcomeDetail',
+            'ResourceState','ConnectivitySettings','SubscriptionId','ResourceGroupName',
+            'MachineName','RunDurationMs','ActionsAttempted','ActionsSuccessful',
+            'ProbeAzcmagentCheck','ProbeServices','ProbeCertificate','ProbeTimeSync',
+            'ProbeAgentVersion','RemediatorState','ErrorMessage','ErrorType',
+            'LocalStackTrace','ScriptVersion','MaxDetailChars','MaxErrorChars'
+        )
+        # Set defaults for optional fields that might be absent from the context.
+        $RunDurationMs     = 0
+        $ActionsAttempted  = @()
+        $ActionsSuccessful = @()
+        $MaxDetailChars    = 500
+        $MaxErrorChars     = 1000
+        foreach ($k in $Context.Keys) {
+            if ($k -in $allowed) {
+                Set-Variable -Name $k -Value $Context[$k]
+            }
+        }
+    }
 
     if (-not $ScriptVersion) {
         try { $ScriptVersion = Get-ScriptVersion } catch { $ScriptVersion = '0.0.0'; $null = $_ }

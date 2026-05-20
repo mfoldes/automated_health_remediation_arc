@@ -1,0 +1,67 @@
+{
+  "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-arc-servers/providers/Microsoft.HybridCompute/machines/vm-arc-test-01",
+  "name": "vm-arc-test-01",
+  "type": "Microsoft.HybridCompute/machines",
+  "location": "eastus",
+  "etag": "W/\"datetime'2024-07-10T12%3A00%3A00.0000000Z'\"",
+  "tags": {
+    "environment": "production",
+    "managed-by": "arc-remediator"
+  },
+  "properties": {
+    "status": "Expired",
+    "lastStatusChange": "2024-05-22T08:30:00.000Z",
+    "provisioningState": "Succeeded",
+    "agentVersion": "1.38.0",
+    "vmId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "displayName": "vm-arc-test-01",
+    "machineFqdn": "vm-arc-test-01.corp.contoso.com",
+    "privateLinkScopeResourceId": null,
+    "osSku": "Windows Server 2019 Datacenter",
+    "osName": "windows",
+    "osVersion": "10.0.17763",
+    "osType": "Windows",
+    "mssqlDiscovered": false,
+    "agentConfiguration": {
+      "incomingConnectionsPorts": [],
+      "extensionsAllowList": [],
+      "extensionsBlockList": [],
+      "proxyUrl": "",
+      "extensionsEnabled": "true",
+      "guestConfigurationEnabled": "true"
+    },
+    "serviceStatuses": {
+      "extensionService": {
+        "status": "Running",
+        "startupType": "Auto"
+      },
+      "guestConfigurationService": {
+        "status": "Running",
+        "startupType": "Auto"
+      }
+    },
+    "cloudMetadata": {},
+    "agentUpgrade": {
+      "enableAutomaticUpgrade": false,
+      "lastAttemptDesiredVersion": "",
+      "lastAttemptStatus": "",
+      "lastAttemptTimestamp": "0001-01-01T00:00:00.000Z"
+    },
+    "osProfile": {
+      "computerName": "vm-arc-test-01",
+      "windowsConfiguration": {
+        "assessmentMode": "ImageDefault",
+        "patchMode": "AutomaticByOS"
+      }
+    },
+    "licensingProfile": {
+      "softwareAssurance": {
+        "softwareAssuranceCustomer": false
+      }
+    },
+    "connectivityProfile": {
+      "location": "eastus",
+      "gatewayPropertyBag": {}
+    }
+  }
+}

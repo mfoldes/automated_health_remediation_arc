@@ -195,3 +195,94 @@ Describe 'Get-AzureResourceState' {
         }
     }
 }
+
+Describe 'Get-AzureResourceState ARM fixture tests (Gap 16)' {
+    # These tests validate the classifier against realistic ARM GET response shapes
+    # captured in tests/fixtures/.  If the real-world API response shape changes,
+    # these tests will fail before production classifies incorrectly.
+    BeforeAll {
+        $script:FixturesDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'fixtures'
+        $script:CommercialFixture = Join-Path $script:FixturesDir 'arm-expired-commercial.json'
+        $script:DodFixture = Join-Path $script:FixturesDir 'arm-expired-dod.json'
+    }
+
+    Context 'Commercial Expired fixture' {
+        It 'arm-expired-commercial.json exists in tests/fixtures/' {
+            $script:CommercialFixture | Should -Exist
+        }
+
+        It 'classifies Commercial Expired ARM response as Expired' {
+            InModuleScope ArcRemediator {
+                $fixture = Join-Path (Split-Path -Parent $PSScriptRoot) 'fixtures' 'arm-expired-commercial.json'
+                $body = Get-Content -LiteralPath $fixture -Raw
+                Mock Invoke-WebRequestWithTls -MockWith {
+                    param($Uri, $Method, $Headers, $UseBasicParsing)
+                    $env:T_FIXTURE_BODY = $using:body
+                    [PSCustomObject]@{
+                        Content    = $env:T_FIXTURE_BODY
+                        StatusCode = 200
+                        Headers    = @{ ETag = 'W/"commercial-etag"' }
+                    }
+                }
+                $env:T_FIXTURE_BODY = $body
+                $r = Get-AzureResourceState -CloudProfile (Get-CloudProfile -Name 'Commercial') `
+                    -SubscriptionId '00000000-0000-0000-0000-000000000000' `
+                    -ResourceGroupName 'rg-arc-servers' `
+                    -MachineName 'vm-arc-test-01' `
+                    -AccessToken 'token'
+
+                $r.Classification | Should -Be 'Expired'
+                $r.Location       | Should -Be 'eastus'
+                $r.Name           | Should -Be 'vm-arc-test-01'
+                $r.StatusCode     | Should -Be 200
+            }
+        }
+
+        It 'Commercial Expired fixture contains expected ARM fields (structure assertion)' {
+            $obj = Get-Content -LiteralPath $script:CommercialFixture -Raw | ConvertFrom-Json
+            $obj.properties.status | Should -Be 'Expired'
+            $obj.type              | Should -Be 'Microsoft.HybridCompute/machines'
+            $obj.location          | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context 'AzureUSGovernment (DoD) Expired fixture' {
+        It 'arm-expired-dod.json exists in tests/fixtures/' {
+            $script:DodFixture | Should -Exist
+        }
+
+        It 'classifies DoD Expired ARM response as Expired' {
+            InModuleScope ArcRemediator {
+                $fixture = Join-Path (Split-Path -Parent $PSScriptRoot) 'fixtures' 'arm-expired-dod.json'
+                $body = Get-Content -LiteralPath $fixture -Raw
+                Mock Invoke-WebRequestWithTls -MockWith {
+                    param($Uri, $Method, $Headers, $UseBasicParsing)
+                    $env:T_FIXTURE_BODY = $using:body
+                    [PSCustomObject]@{
+                        Content    = $env:T_FIXTURE_BODY
+                        StatusCode = 200
+                        Headers    = @{ ETag = 'W/"dod-etag"' }
+                    }
+                }
+                $env:T_FIXTURE_BODY = $body
+                $r = Get-AzureResourceState -CloudProfile (Get-CloudProfile -Name 'AzureGovernmentDoD') `
+                    -SubscriptionId '11111111-1111-1111-1111-111111111111' `
+                    -ResourceGroupName 'rg-arc-servers-dod' `
+                    -MachineName 'vm-arc-dod-01' `
+                    -AccessToken 'token'
+
+                $r.Classification | Should -Be 'Expired'
+                $r.Location       | Should -Be 'usgovvirginia'
+                $r.Name           | Should -Be 'vm-arc-dod-01'
+                $r.StatusCode     | Should -Be 200
+            }
+        }
+
+        It 'DoD Expired fixture contains expected ARM fields (structure assertion)' {
+            $obj = Get-Content -LiteralPath $script:DodFixture -Raw | ConvertFrom-Json
+            $obj.properties.status | Should -Be 'Expired'
+            $obj.type              | Should -Be 'Microsoft.HybridCompute/machines'
+            $obj.location          | Should -Be 'usgovvirginia'
+        }
+    }
+}

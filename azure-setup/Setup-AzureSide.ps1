@@ -77,6 +77,16 @@
 
     .PARAMETER Mode
         Initial config Mode - 'Observe' (default) or 'Enforce'.
+
+    .PARAMETER DeploymentMode
+        Infrastructure deployment strategy. 'Imperative' (default) runs the
+        az-setup private helpers directly. 'Bicep' runs
+        `az deployment group create` against azure-setup/bicep/main.bicep for
+        Storage + LAW + DCE + DCR, then falls through to the imperative path
+        for AAD app registration, RBAC, and config-sample steps.
+
+        The Bicep path is opt-in and treated as Phase 1 parity.  Verify with
+        `--DeploymentMode Bicep -WhatIf` before running destructively.
 #>
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
     Justification = 'Setup-AzureSide.ps1 is a user-facing CLI; per-step progress output to host is intentional and matches the runbook expectation.')]
@@ -127,7 +137,11 @@ param(
 
     [Parameter()]
     [ValidateSet('Observe', 'Enforce')]
-    [string]$Mode = 'Observe'
+    [string]$Mode = 'Observe',
+
+    [Parameter()]
+    [ValidateSet('Imperative', 'Bicep')]
+    [string]$DeploymentMode = 'Imperative'
 )
 
 Set-StrictMode -Version 3.0
@@ -165,46 +179,105 @@ Set-ArcRgRoleAssignment `
     -ResourceGroupName $ScopedArcResourceGroupName
 Write-Host " 5/12 Arc role assignments applied to $($ScopedArcResourceGroupName.Count) RG(s)." -ForegroundColor Green
 
-# 6. Kill-switch storage + SAS.
-$killSwitch = New-KillSwitchInfra `
-    -ResourceGroupName $InfraResourceGroupName `
-    -StorageAccountName $StorageAccountName `
-    -Location $Location
-Write-Host " 6/12 Kill-switch blob ready (private container, TLS1_2)." -ForegroundColor Green
+# 6-9. Infrastructure resources (Storage + LAW + DCE + DCR).
+# Bicep path runs an ARM deployment for these resources; Imperative path
+# calls the private helper functions directly.  AAD + RBAC always run
+# imperatively (no Graph Bicep extension required).
+if ($DeploymentMode -eq 'Bicep') {
+    Write-Host ' 6-9/12 DeploymentMode=Bicep: running az deployment group create ...' -ForegroundColor Cyan
+    $bicepDir = Join-Path $PSScriptRoot 'bicep'
+    $bicepTemplate = Join-Path $bicepDir 'main.bicep'
+    if (-not (Test-Path $bicepTemplate)) {
+        throw "Bicep template not found at '$bicepTemplate'. Ensure azure-setup/bicep/main.bicep is present."
+    }
 
-# 7-8. Workspace + custom table.
-$law = New-LawAndTable `
-    -ResourceGroupName $InfraResourceGroupName `
-    -WorkspaceName $WorkspaceName `
-    -Location $Location `
-    -SubscriptionId $SubscriptionId
-Write-Host " 7-8/12 Workspace + ArcRemediation_CL ready." -ForegroundColor Green
+    $deployName = "arcremediator-$([DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))"
+    $azArgs = @(
+        'deployment', 'group', 'create',
+        '--resource-group', $InfraResourceGroupName,
+        '--name', $deployName,
+        '--template-file', $bicepTemplate,
+        '--parameters', "cloudProfile=$CloudProfile",
+        '--parameters', "location=$Location",
+        '--parameters', "storageAccountName=$StorageAccountName",
+        '--parameters', "workspaceName=$WorkspaceName",
+        '--parameters', "dcrName=$DcrName",
+        '--parameters', "createDce=$(if ($UseDataCollectionEndpoint) { 'true' } else { 'false' })",
+        '--parameters', "dceName=$($DcrName)-dce",
+        '--query', 'properties.outputs',
+        '--output', 'json'
+    )
+    if (-not $PSCmdlet.ShouldProcess($InfraResourceGroupName, "az deployment group create ($deployName)")) {
+        Write-Host ' (WhatIf: Bicep deployment skipped)' -ForegroundColor DarkGray
+        return
+    }
+    $outputJson = & az @azArgs
+    if ($LASTEXITCODE -ne 0) { throw "az deployment group create failed (exit $LASTEXITCODE). Check az CLI output above." }
+    $outputs = $outputJson | ConvertFrom-Json
 
-# 9. Optional DCE (provisioned BEFORE DCR if requested).
-$dceId = $null
-$dceEndpoint = $null
-if ($UseDataCollectionEndpoint) {
-    $dce = New-OptionalDce `
+    # Rehydrate the same shape that the imperative helpers produce.
+    $killSwitch = [PSCustomObject]@{
+        KillSwitchUrl      = $null  # SAS URL must be generated separately via az storage blob generate-sas
+        StorageAccountName = $StorageAccountName
+        ContainerName      = 'arc-remediator'
+    }
+    $law = [PSCustomObject]@{
+        WorkspaceName      = $WorkspaceName
+        WorkspaceResourceId = $outputs.workspaceId.value
+    }
+    $dcr = [PSCustomObject]@{
+        DcrResourceId  = $outputs.dcrId.value
+        ImmutableId    = $outputs.dcrImmutableId.value
+        StreamName     = $outputs.streamName.value
+        LogsIngestion  = $outputs.logsIngestionEndpoint.value
+    }
+    $dceId       = $outputs.dceId.value
+    $dceEndpoint = $outputs.dceLogsIngestionEndpoint.value
+    Write-Host ' 6-9/12 Bicep deployment complete.' -ForegroundColor Green
+} else {
+    # ---- Imperative path (original, default) --------------------------------
+
+    # 6. Kill-switch storage + SAS.
+    $killSwitch = New-KillSwitchInfra `
         -ResourceGroupName $InfraResourceGroupName `
-        -DceName ($DcrName + '-dce') `
+        -StorageAccountName $StorageAccountName `
+        -Location $Location
+    Write-Host " 6/12 Kill-switch blob ready (private container, TLS1_2)." -ForegroundColor Green
+
+    # 7-8. Workspace + custom table.
+    $law = New-LawAndTable `
+        -ResourceGroupName $InfraResourceGroupName `
+        -WorkspaceName $WorkspaceName `
         -Location $Location `
         -SubscriptionId $SubscriptionId
-    $dceId = $dce.DceResourceId
-    $dceEndpoint = $dce.LogsIngestionUrl
-    Write-Host " 10/12 DCE provisioned (-UseDataCollectionEndpoint)." -ForegroundColor Green
-} else {
-    Write-Host ' 10/12 DCE skipped (direct logsIngestion on DCR).' -ForegroundColor DarkGray
-}
+    Write-Host " 7-8/12 Workspace + ArcRemediation_CL ready." -ForegroundColor Green
 
-# 9. DCR (kind:Direct).
-$dcr = New-DirectDcr `
-    -ResourceGroupName $InfraResourceGroupName `
-    -DcrName $DcrName `
-    -Location $Location `
-    -WorkspaceResourceId $law.WorkspaceResourceId `
-    -SubscriptionId $SubscriptionId `
-    -DataCollectionEndpointId $dceId
-Write-Host " 9/12 DCR ready (kind:Direct, immutableId=$($dcr.ImmutableId))." -ForegroundColor Green
+    # 9. Optional DCE (provisioned BEFORE DCR if requested).
+    $dceId = $null
+    $dceEndpoint = $null
+    if ($UseDataCollectionEndpoint) {
+        $dce = New-OptionalDce `
+            -ResourceGroupName $InfraResourceGroupName `
+            -DceName ($DcrName + '-dce') `
+            -Location $Location `
+            -SubscriptionId $SubscriptionId
+        $dceId = $dce.DceResourceId
+        $dceEndpoint = $dce.LogsIngestionUrl
+        Write-Host " 10/12 DCE provisioned (-UseDataCollectionEndpoint)." -ForegroundColor Green
+    } else {
+        Write-Host ' 10/12 DCE skipped (direct logsIngestion on DCR).' -ForegroundColor DarkGray
+    }
+
+    # 9. DCR (kind:Direct).
+    $dcr = New-DirectDcr `
+        -ResourceGroupName $InfraResourceGroupName `
+        -DcrName $DcrName `
+        -Location $Location `
+        -WorkspaceResourceId $law.WorkspaceResourceId `
+        -SubscriptionId $SubscriptionId `
+        -DataCollectionEndpointId $dceId
+    Write-Host " 9/12 DCR ready (kind:Direct, immutableId=$($dcr.ImmutableId))." -ForegroundColor Green
+}
 
 # 11. Metrics Publisher on the DCR for the Logs Ingestion SP.
 Set-DcrMetricsPublisher `

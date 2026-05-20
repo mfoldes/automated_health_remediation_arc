@@ -20,7 +20,42 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
 - `SECURITY.md` with the project's vulnerability-reporting policy.
 - `CHANGELOG.md` (this file) and `tests/unit/Changelog.Tests.ps1`
   asserting structure and version alignment with the module manifest.
-- **Self-deadline guard in `Invoke-ArcRemediation`** (Gap 8): before
+- **Orchestrator dispatch extracted to `Invoke-OrchestratorDispatch`** (Gap 14):
+  The 140-line action-dispatch switch (probes + classification branch + breaker
+  accounting, formerly lines 243-381 of `Invoke-ArcRemediation.ps1`) has been
+  extracted into a dedicated private helper
+  `src/ArcRemediator/Private/Invoke-OrchestratorDispatch.ps1`.
+  `Invoke-ArcRemediation` now delegates phases 7 and 8 to this helper and unpacks
+  the result. Behavior is identical; existing `InModuleScope` mocks continue to
+  work. New unit tests in `tests/unit/OrchestratorDispatch.Tests.ps1` cover
+  Connected→Healthy, Disconnected+Observe→ObserveOnly, and
+  Expired+MaxRuntimeMinutes=0→Aborted.
+- **`New-RemediatorRow` Context parameter set** (Gap 15):
+  `New-RemediatorRow` now accepts a `[hashtable]$Context` parameter set as an
+  alternative to the original 23-parameter explicit call. The function unpacks the
+  hashtable via an allowlisted `foreach`; existing callers are unaffected
+  (`DefaultParameterSetName='Explicit'`). The orchestrator can pass its run-context
+  hashtable directly after the Gap 14 refactor lands.
+- **Bicep Phase 1 infrastructure template** (Gap 11):
+  New `azure-setup/bicep/main.bicep` declares Storage account, private container,
+  Log Analytics workspace + `ArcRemediation_CL` custom table, optional DCE, and
+  DCR (kind:Direct) with `transformKql`. Cloud-specific parameter files for
+  Commercial and DoD are included. `Setup-AzureSide.ps1` gains a
+  `-DeploymentMode Bicep` parameter that runs `az deployment group create` for
+  steps 6-9 instead of the imperative Az PowerShell path. The imperative path
+  remains the default until lab parity is confirmed.
+- **ARM Expired fixture files** (Gap 16):
+  `tests/fixtures/arm-expired-commercial.json` and `tests/fixtures/arm-expired-dod.json`
+  capture realistic ARM GET shapes for Expired `Microsoft.HybridCompute/machines`
+  resources in AzureCloud and AzureUSGovernment respectively. Gold-fixture tests in
+  `tests/unit/Get-AzureResourceState.Tests.ps1` assert the classifier returns
+  `Classification='Expired'` for both fixtures.
+- **Bicep structure tests** in `azure-setup/tests/Bicep.WhatIf.Tests.ps1`: validate
+  required parameters, expected resource types, column schema, and TLS/security
+  properties without a live Azure connection. A live what-if context exists but is
+  skipped unless `$env:ARC_BICEP_WHATIF_RG` and `$env:ARC_BICEP_WHATIF_SUB` are set.
+
+
   entering the destructive Expired-rejoin path, the orchestrator now checks
   `$sw.Elapsed.TotalMinutes` against a configurable `MaxRuntimeMinutes`
   (config-file key, default 45 min). If the deadline has passed, the run

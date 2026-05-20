@@ -240,147 +240,25 @@ function Invoke-ArcRemediation {
             return New-RunResult -Outcome $outcomeString -Detail $outcomeDetail -Row $row -LogIngestionFailed $logIngestionFailed -Elapsed $sw
         }
 
-        # ---- 7. Branch by classification (Connected / Disconnected / Expired) ----
-        $actionsAttempted = New-Object System.Collections.Generic.List[string]
-        $actionsSuccessful = New-Object System.Collections.Generic.List[string]
+        # ---- 7+8. Dispatch (probes, action branch, breaker accounting) --------
+        $dispatch = Invoke-OrchestratorDispatch `
+            -Config $cfg -State $state -Mode $mode -CloudProfile $cloudProfile `
+            -Connectivity $connectivity -ResourceState $resourceState `
+            -LocalRg $localRg -LocalName $localName -ArmAccessToken $armToken.AccessToken `
+            -EventTime $eventTime -StatePath $StatePath -AzcmagentPath $AzcmagentPath -Sw $sw
 
-        # Probes (read-only in Observe; service probe still read-only here)
-        $probeCheck = $null
-        $probeServices = $null
-        $probeCert = $null
-        $probeTime = $null
-        $probeVersion = $null
-        try { $probeCheck = Invoke-AzcmagentCheck -CloudProfile $cloudProfile -Location $resourceState.Location -AzcmagentPath $AzcmagentPath } catch { $null = $_ }
-        try { $probeServices = Test-AgentServices -GatewayRequired:([bool]($connectivity.ArcGatewayResourceId)) } catch { $null = $_ }
-        try { $probeCert = Get-AgentCertificateProbe -ConnectivitySettings $connectivity } catch { $null = $_ }
-        try { $probeTime = Get-TimeSyncProbe } catch { $null = $_ }
-        try { $probeVersion = Get-AgentVersionProbe -ConnectivitySettings $connectivity -SupportedFloor '1.40.0' } catch { $null = $_ }
-
-        switch ($resourceState.Classification) {
-            'Connected' {
-                $outcomeString = 'Healthy'
-                $outcomeDetail = 'ARM and local agent both report Connected.'
-                if ($mode -eq 'Enforce') {
-                    # Reset consecutive failures on verified-connected.
-                    $state.ConsecutiveFailures = 0
-                    $state.BreakerTripped = $false
-                    $state.LastSuccessfulRunUtc = $eventTime.ToString('o')
-                }
-                break
-            }
-
-            'Disconnected' {
-                if ($connectivity.NeedsHuman) {
-                    $outcomeString = 'NeedsHuman'
-                    $outcomeDetail = [string]$connectivity.NeedsHumanReason
-                    break
-                }
-                if ($mode -eq 'Observe') {
-                    $outcomeString = 'ObserveOnly'
-                    $outcomeDetail = 'Disconnected; Observe mode means no service repair attempted.'
-                    break
-                }
-                $actionsAttempted.Add('Repair-AgentServices')
-                $repair = Repair-AgentServices -GatewayRequired:([bool]($connectivity.ArcGatewayResourceId)) -Confirm:$false
-                if ($repair.NeedsHuman) {
-                    $outcomeString = 'NeedsHuman'
-                    $outcomeDetail = [string]$repair.NeedsHumanReason
-                    break
-                }
-                if (@($repair.Restarted).Count -gt 0) {
-                    $actionsSuccessful.Add('Repair-AgentServices')
-                    $outcomeString = 'ServicesRepaired'
-                    $outcomeDetail = "Restarted services: $([string]::Join(', ', $repair.Restarted))."
-                } else {
-                    $outcomeString = 'ConnectivityBlocked'
-                    $outcomeDetail = 'Disconnected and no stopped services to restart; likely network or proxy issue.'
-                }
-            }
-
-            'Expired' {
-                if ($mode -eq 'Observe') {
-                    $outcomeString = 'ObserveOnly'
-                    $outcomeDetail = 'Expired classification observed; Observe mode means no destructive remediation.'
-                    break
-                }
-                if ($connectivity.IsClusterBacked) {
-                    $outcomeString = 'NeedsHuman'
-                    $outcomeDetail = [string]$connectivity.NeedsHumanReason
-                    break
-                }
-                # Self-deadline: refuse to enter the destructive path if the run
-                # has already consumed more than MaxRuntimeMinutes.  This prevents
-                # Task Scheduler from killing the process mid-rejoin when the task
-                # ExecutionTimeLimit (1 hr) is reached.  Default 45 min leaves
-                # a 15-minute margin for the rejoin sequence itself.
-                $maxRuntimeMin = 45
-                if ($cfg.PSObject.Properties.Name -contains 'MaxRuntimeMinutes' -and $null -ne $cfg.MaxRuntimeMinutes) {
-                    $maxRuntimeMin = [int]$cfg.MaxRuntimeMinutes
-                }
-                if ($sw.Elapsed.TotalMinutes -ge $maxRuntimeMin) {
-                    $outcomeString = 'Aborted'
-                    $outcomeDetail = "SelfDeadlineHit: run elapsed $([int]$sw.Elapsed.TotalMinutes) min >= MaxRuntimeMinutes=$maxRuntimeMin; deferring destructive remediation to next scheduled run."
-                    break
-                }
-                # Cooldown check: no more than one attempt per 7 days.
-                if ($state.LastExpiredAttemptStartedUtc) {
-                    $started = [datetime]::MinValue
-                    if ([datetime]::TryParse([string]$state.LastExpiredAttemptStartedUtc, [ref]$started)) {
-                        $age = ((Get-Date).ToUniversalTime() - $started.ToUniversalTime())
-                        if ($age.TotalDays -lt 7) {
-                            $outcomeString = 'CooldownSkipped'
-                            $outcomeDetail = "Expired rejoin within 7-day cooldown (started $($state.LastExpiredAttemptStartedUtc), outcome=$($state.LastExpiredAttemptOutcome))."
-                            break
-                        }
-                    }
-                }
-                # Breaker check.
-                if ([bool]$state.BreakerTripped) {
-                    $outcomeString = 'BreakerTripped'
-                    $outcomeDetail = "Circuit breaker tripped; not attempting Expired rejoin."
-                    break
-                }
-                # Destructive path.
-                $actionsAttempted.Add('Invoke-ExpiredRejoin')
-                $rejoin = Invoke-ExpiredRejoin -CloudProfile $cloudProfile -ArcCredential $cfg.ArcCredential `
-                    -AccessToken $armToken.AccessToken -SubscriptionId $cfg.SubscriptionId `
-                    -ResourceGroupName $localRg -MachineName $localName `
-                    -ConnectivitySettings $connectivity -PreservedTags $resourceState.Tags `
-                    -PreservedLocation $resourceState.Location `
-                    -EnableAutomaticUpgrade:([bool]$cfg.EnableAutomaticAgentUpgrade) `
-                    -StatePath $StatePath -AzcmagentPath $AzcmagentPath -Confirm:$false
-                $outcomeDetail = $rejoin.Detail
-                switch ($rejoin.Outcome) {
-                    'ExpiredRejoined' { $outcomeString = 'ExpiredRejoinSuccess'; $actionsSuccessful.Add('Invoke-ExpiredRejoin') }
-                    'ExpiredRejoinFailure' { $outcomeString = 'ExpiredRejoinFailure' }
-                    'NeedsHuman' { $outcomeString = 'NeedsHuman' }
-                    'ConfigMismatch' { $outcomeString = 'ConfigMismatch' }
-                    'Aborted' { $outcomeString = 'Healthy'; $outcomeDetail = 'Pre-destructive re-read no longer classified as Expired; nothing destructive performed.' }
-                    'WhatIf' { $outcomeString = 'ObserveOnly' }
-                    default { $outcomeString = 'Error' }
-                }
-            }
-        }
-
-        # ---- 8. State updates (breaker accounting) ------------------------
-        if ($mode -eq 'Enforce') {
-            $failingOutcomes = @('AuthFailure','ConfigMismatch','ArmForbidden','AzureMachineError','ExpiredRejoinFailure','Error')
-            if ($outcomeString -in $failingOutcomes) {
-                $state.ConsecutiveFailures = [int]$state.ConsecutiveFailures + 1
-                $threshold = if ($cfg.PSObject.Properties.Name -contains 'CircuitBreakerFailureThreshold' -and $cfg.CircuitBreakerFailureThreshold) { [int]$cfg.CircuitBreakerFailureThreshold } else { 3 }
-                if ($state.ConsecutiveFailures -ge $threshold) {
-                    $state.BreakerTripped = $true
-                }
-            } elseif ($outcomeString -in @('Healthy','ServicesRepaired','ExpiredRejoinSuccess')) {
-                $state.ConsecutiveFailures = 0
-                $state.BreakerTripped = $false
-                $state.LastSuccessfulRunUtc = $eventTime.ToString('o')
-            }
-            try { Set-RemediatorState -State $state -Path $StatePath -Confirm:$false } catch { $null = $_ }
-        }
+        $outcomeString     = $dispatch.OutcomeString
+        $outcomeDetail     = $dispatch.OutcomeDetail
+        $probeCheck        = $dispatch.ProbeCheck
+        $probeServices     = $dispatch.ProbeServices
+        $probeCert         = $dispatch.ProbeCert
+        $probeTime         = $dispatch.ProbeTime
+        $probeVersion      = $dispatch.ProbeVersion
+        $actionsAttempted  = $dispatch.ActionsAttempted
+        $actionsSuccessful = $dispatch.ActionsSuccessful
 
         # ---- 9. Build LAW row + best-effort send -------------------------
-        $row = Resolve-RemediationRow $eventTime $cfg $mode $outcomeString $outcomeDetail $resourceState $connectivity $localRg $localName $state $actionsAttempted.ToArray() $actionsSuccessful.ToArray() $errorMessage $sw `
+        $row = Resolve-RemediationRow $eventTime $cfg $mode $outcomeString $outcomeDetail $resourceState $connectivity $localRg $localName $state $actionsAttempted $actionsSuccessful $errorMessage $sw `
             -ProbeAzcmagentCheck $probeCheck -ProbeServices $probeServices -ProbeCertificate $probeCert -ProbeTimeSync $probeTime -ProbeAgentVersion $probeVersion
 
         $logIngestionFailed = -not (Send-RowOrLogFailure $cfg $row $monitorToken $LogDirectory)

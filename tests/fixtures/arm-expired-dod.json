@@ -1,0 +1,68 @@
+{
+  "id": "/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg-arc-servers-dod/providers/Microsoft.HybridCompute/machines/vm-arc-dod-01",
+  "name": "vm-arc-dod-01",
+  "type": "Microsoft.HybridCompute/machines",
+  "location": "usgovvirginia",
+  "etag": "W/\"datetime'2024-07-10T18%3A00%3A00.0000000Z'\"",
+  "tags": {
+    "environment": "il5-production",
+    "managed-by": "arc-remediator",
+    "classification": "CUI"
+  },
+  "properties": {
+    "status": "Expired",
+    "lastStatusChange": "2024-05-20T14:15:00.000Z",
+    "provisioningState": "Succeeded",
+    "agentVersion": "1.37.0",
+    "vmId": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+    "displayName": "vm-arc-dod-01",
+    "machineFqdn": "vm-arc-dod-01.il5.agency.mil",
+    "privateLinkScopeResourceId": null,
+    "osSku": "Windows Server 2022 Datacenter",
+    "osName": "windows",
+    "osVersion": "10.0.20348",
+    "osType": "Windows",
+    "mssqlDiscovered": false,
+    "agentConfiguration": {
+      "incomingConnectionsPorts": [],
+      "extensionsAllowList": [],
+      "extensionsBlockList": [],
+      "proxyUrl": "http://proxy.il5.agency.mil:8080",
+      "extensionsEnabled": "true",
+      "guestConfigurationEnabled": "true"
+    },
+    "serviceStatuses": {
+      "extensionService": {
+        "status": "Running",
+        "startupType": "Auto"
+      },
+      "guestConfigurationService": {
+        "status": "Running",
+        "startupType": "Auto"
+      }
+    },
+    "cloudMetadata": {},
+    "agentUpgrade": {
+      "enableAutomaticUpgrade": false,
+      "lastAttemptDesiredVersion": "",
+      "lastAttemptStatus": "",
+      "lastAttemptTimestamp": "0001-01-01T00:00:00.000Z"
+    },
+    "osProfile": {
+      "computerName": "vm-arc-dod-01",
+      "windowsConfiguration": {
+        "assessmentMode": "ImageDefault",
+        "patchMode": "AutomaticByOS"
+      }
+    },
+    "licensingProfile": {
+      "softwareAssurance": {
+        "softwareAssuranceCustomer": false
+      }
+    },
+    "connectivityProfile": {
+      "location": "usgovvirginia",
+      "gatewayPropertyBag": {}
+    }
+  }
+}
