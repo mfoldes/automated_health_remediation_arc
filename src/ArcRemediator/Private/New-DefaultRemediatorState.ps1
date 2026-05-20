@@ -30,6 +30,8 @@ function New-DefaultRemediatorState {
         LastExpiredAttemptStartedUtc = $null
         LastExpiredAttemptCompletedUtc = $null
         LastExpiredAttemptOutcome = $null
+        LastServiceRepairUtc = $null
+        BreakerTrippedUtc = $null
         ResetByUser = $null
     }
 }

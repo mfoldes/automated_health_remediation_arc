@@ -72,9 +72,6 @@ function Invoke-Azcmagent {
         $candidate = Join-Path $env:ProgramFiles 'AzureConnectedMachineAgent\azcmagent.exe'
         if (Test-Path -LiteralPath $candidate) {
             $AzcmagentPath = $candidate
-        } else {
-            $cmd = Get-Command -Name 'azcmagent.exe' -ErrorAction SilentlyContinue
-            if ($cmd) { $AzcmagentPath = $cmd.Source }
         }
     }
     if (-not $AzcmagentPath -or -not (Test-Path -LiteralPath $AzcmagentPath)) {

@@ -150,6 +150,10 @@ function Invoke-ArcRemediation {
             return New-RunResult -Outcome $outcomeString -Detail $outcomeDetail -Row $row -LogIngestionFailed $false -Elapsed $sw
         }
 
+        if ($kill.PSObject.Properties.Name -contains 'SasExpiryWarning' -and $kill.SasExpiryWarning) {
+            Write-LocalLog -Level 'Warn' -Message $kill.SasExpiryWarning -Directory $LogDirectory
+        }
+
         # ---- 4. Local agent state + cloud-profile match -------------------
         $connectivity = Get-ArcConnectivitySettings -CloudProfile $cloudProfile -AzcmagentPath $AzcmagentPath
         $expectedAgentClouds = @()
@@ -271,6 +275,18 @@ function Invoke-ArcRemediation {
                     $outcomeDetail = 'Disconnected; Observe mode means no service repair attempted.'
                     break
                 }
+                # Anti-flapping: skip service restart if last repair was within 48 hours.
+                if ($state.PSObject.Properties.Name -contains 'LastServiceRepairUtc' -and $state.LastServiceRepairUtc) {
+                    $repairStart = [datetime]::MinValue
+                    if ([datetime]::TryParse([string]$state.LastServiceRepairUtc, [ref]$repairStart)) {
+                        $repairAge = ((Get-Date).ToUniversalTime() - $repairStart.ToUniversalTime())
+                        if ($repairAge.TotalHours -lt 48) {
+                            $outcomeString = 'ServiceRepairCooldown'
+                            $outcomeDetail = "Disconnected; service repair within 48-hour cooldown (last repair $($state.LastServiceRepairUtc))."
+                            break
+                        }
+                    }
+                }
                 $actionsAttempted.Add('Repair-AgentServices')
                 $repair = Repair-AgentServices -GatewayRequired:([bool]($connectivity.ArcGatewayResourceId)) -Confirm:$false
                 if ($repair.NeedsHuman) {
@@ -282,6 +298,7 @@ function Invoke-ArcRemediation {
                     $actionsSuccessful.Add('Repair-AgentServices')
                     $outcomeString = 'ServicesRepaired'
                     $outcomeDetail = "Restarted services: $([string]::Join(', ', $repair.Restarted))."
+                    $state.LastServiceRepairUtc = (Get-Date).ToUniversalTime().ToString('o')
                 } else {
                     $outcomeString = 'ConnectivityBlocked'
                     $outcomeDetail = 'Disconnected and no stopped services to restart; likely network or proxy issue.'
@@ -311,11 +328,26 @@ function Invoke-ArcRemediation {
                         }
                     }
                 }
-                # Breaker check.
+                # Breaker check (with fleet-scale auto-reset via blob).
                 if ([bool]$state.BreakerTripped) {
-                    $outcomeString = 'BreakerTripped'
-                    $outcomeDetail = "Circuit breaker tripped; not attempting Expired rejoin."
-                    break
+                    # Check for operator-issued fleet-wide breaker reset.
+                    if ($cfg.PSObject.Properties.Name -contains 'BreakerResetUrl' -and $cfg.BreakerResetUrl) {
+                        $breakerReset = Get-BreakerResetState -BreakerResetUrl $cfg.BreakerResetUrl -BreakerTrippedUtc $state.BreakerTrippedUtc
+                        if ($breakerReset.ShouldReset) {
+                            $state.ConsecutiveFailures = 0
+                            $state.BreakerTripped = $false
+                            $state.BreakerLastResetUtc = (Get-Date).ToUniversalTime().ToString('o')
+                            Write-LocalLog -Level 'Info' -Message "Circuit breaker auto-reset via fleet blob (reset timestamp=$($breakerReset.ResetTimestamp))." -Directory $LogDirectory
+                        } else {
+                            $outcomeString = 'BreakerTripped'
+                            $outcomeDetail = "Circuit breaker tripped; not attempting Expired rejoin."
+                            break
+                        }
+                    } else {
+                        $outcomeString = 'BreakerTripped'
+                        $outcomeDetail = "Circuit breaker tripped; not attempting Expired rejoin."
+                        break
+                    }
                 }
                 # Destructive path.
                 $actionsAttempted.Add('Invoke-ExpiredRejoin')
@@ -347,6 +379,7 @@ function Invoke-ArcRemediation {
                 $threshold = if ($cfg.PSObject.Properties.Name -contains 'CircuitBreakerFailureThreshold' -and $cfg.CircuitBreakerFailureThreshold) { [int]$cfg.CircuitBreakerFailureThreshold } else { 3 }
                 if ($state.ConsecutiveFailures -ge $threshold) {
                     $state.BreakerTripped = $true
+                    $state.BreakerTrippedUtc = (Get-Date).ToUniversalTime().ToString('o')
                 }
             } elseif ($outcomeString -in @('Healthy','ServicesRepaired','ExpiredRejoinSuccess')) {
                 $state.ConsecutiveFailures = 0

@@ -1,5 +1,33 @@
 #Requires -Version 5.1
 
+function Get-RetryAfterSeconds {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter()] [object]$Response,
+        [Parameter()] [int]$Default = 10,
+        [Parameter()] [int]$Max = 60
+    )
+    $val = $null
+    try {
+        if ($null -ne $Response -and $Response.PSObject.Properties.Name -contains 'Headers' -and $Response.Headers) {
+            $hdrs = $Response.Headers
+            if ($hdrs -is [System.Collections.IDictionary]) {
+                foreach ($key in $hdrs.Keys) {
+                    if ($key -ieq 'Retry-After') { $val = $hdrs[$key]; break }
+                }
+            }
+        }
+    } catch { $null = $_ }
+    if ($null -eq $val) { return [math]::Min($Default, $Max) }
+    $valStr = [string]($val | Select-Object -First 1)
+    $secs = 0
+    if ([int]::TryParse($valStr, [ref]$secs)) {
+        return [math]::Min([math]::Max($secs, 1), $Max)
+    }
+    return [math]::Min($Default, $Max)
+}
+
 function Get-AzureResourceState {
     <#
         .SYNOPSIS
@@ -106,29 +134,47 @@ function Get-AzureResourceState {
             }
         }
 
-        $cls = if ($null -eq $statusCode) {
-            'ArmTransientFailure'
-        } elseif ($statusCode -eq 404) {
-            'ResourceNotFound'
-        } elseif ($statusCode -eq 403) {
-            'ArmForbidden'
-        } elseif ($statusCode -eq 429) {
-            'ArmThrottled'
-        } elseif ($statusCode -ge 500 -and $statusCode -le 599) {
-            'ArmTransientFailure'
+        if ($statusCode -eq 429) {
+            $waitSec = Get-RetryAfterSeconds -Response $_.Exception.Response
+            Start-Sleep -Seconds $waitSec
+            try {
+                $resp = Invoke-WebRequestWithTls -Uri $uri -Method 'GET' -Headers $headers -TimeoutSec $TimeoutSec
+            } catch {
+                return [PSCustomObject]@{
+                    Classification = 'ArmThrottled'
+                    StatusCode = 429
+                    ETag = $null
+                    Tags = $null
+                    Location = $null
+                    Name = $MachineName
+                    Raw = $null
+                    ErrorMessage = $_.Exception.Message
+                }
+            }
+            # Retry succeeded - fall through to JSON parsing below
         } else {
-            'Unknown'
-        }
+            $cls = if ($null -eq $statusCode) {
+                'ArmTransientFailure'
+            } elseif ($statusCode -eq 404) {
+                'ResourceNotFound'
+            } elseif ($statusCode -eq 403) {
+                'ArmForbidden'
+            } elseif ($statusCode -ge 500 -and $statusCode -le 599) {
+                'ArmTransientFailure'
+            } else {
+                'Unknown'
+            }
 
-        return [PSCustomObject]@{
-            Classification = $cls
-            StatusCode = $statusCode
-            ETag = $null
-            Tags = $null
-            Location = $null
-            Name = $MachineName
-            Raw = $null
-            ErrorMessage = $_.Exception.Message
+            return [PSCustomObject]@{
+                Classification = $cls
+                StatusCode = $statusCode
+                ETag = $null
+                Tags = $null
+                Location = $null
+                Name = $MachineName
+                Raw = $null
+                ErrorMessage = $_.Exception.Message
+            }
         }
     }
 
