@@ -1,6 +1,8 @@
 #Requires -Version 5.1
 
 function Get-RetryAfterSeconds {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'Returns a count of seconds (an integer quantity), not a collection of objects. Plural form is semantically correct.')]
     [CmdletBinding()]
     [OutputType([int])]
     param(

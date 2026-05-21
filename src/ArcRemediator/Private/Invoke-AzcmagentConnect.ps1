@@ -264,7 +264,7 @@ cloud: $AzcmagentCloud
 
     # Restrict ACL to SYSTEM + BUILTIN\Administrators + the current process
     # identity. The ACL is built BEFORE the file is created so the
-    # FileStream constructor can apply it atomically — the file is born
+    # FileStream constructor can apply it atomically -- the file is born
     # with restricted permissions and no TOCTOU window exists between
     # creation and ACL application. In production the remediator runs as
     # SYSTEM so the third entry is redundant; in dev/test the current
