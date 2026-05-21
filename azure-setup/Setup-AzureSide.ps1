@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
     .SYNOPSIS
         Idempotent Azure-side setup for the Arc Remediator MVP. Runs the
@@ -251,6 +251,23 @@ if ($DeploymentMode -eq 'Bicep') {
         -Location $Location `
         -SubscriptionId $SubscriptionId
     Write-Host " 7-8/12 Workspace + ArcRemediation_CL ready." -ForegroundColor Green
+
+    # 6b. Blob-write alert (diagnostic setting + SQR) — Detect strategy for R6.
+    # Placed after step 7-8 because the LAW workspace ID is required.
+    # Best-effort; do not abort the setup if the alert cannot be created.
+    try {
+        $storageId = (Get-AzStorageAccount -ResourceGroupName $InfraResourceGroupName -Name $StorageAccountName -ErrorAction Stop).Id
+        $null = New-BlobWriteAlert `
+            -StorageAccountResourceId $storageId `
+            -WorkspaceResourceId $law.WorkspaceResourceId `
+            -ResourceGroupName $InfraResourceGroupName `
+            -Location $Location `
+            -SubscriptionId $SubscriptionId
+        Write-Host ' 6b/12 Blob-write alert (diagnostic setting + SQR) configured.' -ForegroundColor Green
+    } catch {
+        Write-Warning "Setup-AzureSide: Blob-write alert setup failed (non-fatal): $($_.Exception.Message)"
+        Write-Host ' 6b/12 Blob-write alert skipped (see warning above).' -ForegroundColor Yellow
+    }
 
     # 9. Optional DCE (provisioned BEFORE DCR if requested).
     $dceId = $null

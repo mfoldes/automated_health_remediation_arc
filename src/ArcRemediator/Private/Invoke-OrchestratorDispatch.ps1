@@ -210,6 +210,7 @@ function Invoke-OrchestratorDispatch {
                         if ($LogDirectory) {
                             Write-LocalLog -Level 'Info' -Message "Circuit breaker auto-reset via fleet blob (reset timestamp=$($breakerReset.ResetTimestamp))." -Directory $LogDirectory
                         }
+                        Write-SecurityEventLog -EventId 1002 -Message "ArcRemediator: circuit breaker auto-reset via fleet blob on machine $env:COMPUTERNAME (reset timestamp=$($breakerReset.ResetTimestamp))."
                     } else {
                         $outcomeString = 'BreakerTripped'
                         $outcomeDetail = "Circuit breaker tripped; not attempting Expired rejoin."
@@ -223,6 +224,7 @@ function Invoke-OrchestratorDispatch {
             }
             # Destructive path.
             $actionsAttempted.Add('Invoke-ExpiredRejoin')
+            Write-SecurityEventLog -EventId 1004 -Message "ArcRemediator: entering Expired rejoin path on machine $env:COMPUTERNAME (sub=$($Config.SubscriptionId) rg=$LocalRg name=$LocalName)." -EntryType 'Warning'
             $rejoin = Invoke-ExpiredRejoin -CloudProfile $CloudProfile -ArcCredential $Config.ArcCredential `
                 -AccessToken $ArmAccessToken -SubscriptionId $Config.SubscriptionId `
                 -ResourceGroupName $LocalRg -MachineName $LocalName `
@@ -231,6 +233,7 @@ function Invoke-OrchestratorDispatch {
                 -EnableAutomaticUpgrade:([bool]$Config.EnableAutomaticAgentUpgrade) `
                 -StatePath $StatePath -AzcmagentPath $AzcmagentPath -Confirm:$false
             $outcomeDetail = $rejoin.Detail
+            Write-SecurityEventLog -EventId 1005 -Message "ArcRemediator: Expired rejoin outcome '$($rejoin.Outcome)' on machine $env:COMPUTERNAME. Detail: $($rejoin.Detail)" -EntryType $(if ($rejoin.Outcome -eq 'ExpiredRejoined') { 'Information' } else { 'Warning' })
             switch ($rejoin.Outcome) {
                 'ExpiredRejoined'      { $outcomeString = 'ExpiredRejoinSuccess'; $actionsSuccessful.Add('Invoke-ExpiredRejoin') }
                 'ExpiredRejoinFailure' { $outcomeString = 'ExpiredRejoinFailure' }
@@ -254,6 +257,7 @@ function Invoke-OrchestratorDispatch {
             if ($State.ConsecutiveFailures -ge $threshold) {
                 $State.BreakerTripped = $true
                 $State.BreakerTrippedUtc = (Get-Date).ToUniversalTime().ToString('o')
+                Write-SecurityEventLog -EventId 1001 -Message "ArcRemediator: circuit breaker tripped on machine $env:COMPUTERNAME after $($State.ConsecutiveFailures) consecutive failures (threshold=$threshold, outcome=$outcomeString)." -EntryType 'Warning'
             }
         } elseif ($outcomeString -in @('Healthy', 'ServicesRepaired', 'ExpiredRejoinSuccess')) {
             $State.ConsecutiveFailures = 0

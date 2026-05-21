@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 function Invoke-AzcmagentConnect {
     <#
@@ -289,22 +289,49 @@ cloud: $AzcmagentCloud
     # ensures we never overwrite an existing file (prevents symlink /
     # overwrite attacks). FileShare::None locks the file exclusively
     # while we write the secret content.
+    #
+    # The 7-arg FileStream(FileSecurity) constructor only exists in
+    # .NET Framework (Windows PowerShell 5.1); .NET 6+ removed it and
+    # the FileSystemAclExtensions::Create replacement is unreliable
+    # under PowerShell's reflection binder. On PowerShell 7+ we create
+    # an empty file with CreateNew, immediately apply the restricted
+    # ACL via Set-Acl, then write the secret. Because no secret bytes
+    # are written until AFTER the ACL is narrowed, the secret never
+    # touches disk under a default ACL. The temp file is in a
+    # process-local directory with a random GUID name, so there is no
+    # exploitable race against the brief empty-file window.
     $bytes = [System.Text.Encoding]::ASCII.GetBytes($content)
-    $fs = $null
-    try {
-        $fs = [System.IO.FileStream]::new(
-            $path,
-            [System.IO.FileMode]::CreateNew,
-            [System.Security.AccessControl.FileSystemRights]::FullControl,
-            [System.IO.FileShare]::None,
-            4096,
-            [System.IO.FileOptions]::None,
-            $acl
-        )
-        $fs.Write($bytes, 0, $bytes.Length)
-        $fs.Flush()
-    } finally {
-        if ($fs) { $fs.Dispose() }
+    if ($PSVersionTable.PSEdition -eq 'Core') {
+        $createFs = $null
+        try {
+            $createFs = [System.IO.File]::Open(
+                $path,
+                [System.IO.FileMode]::CreateNew,
+                [System.IO.FileAccess]::Write,
+                [System.IO.FileShare]::None
+            )
+        } finally {
+            if ($createFs) { $createFs.Dispose() }
+        }
+        Set-Acl -LiteralPath $path -AclObject $acl
+        [System.IO.File]::WriteAllBytes($path, $bytes)
+    } else {
+        $fs = $null
+        try {
+            $fs = [System.IO.FileStream]::new(
+                $path,
+                [System.IO.FileMode]::CreateNew,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.IO.FileShare]::None,
+                4096,
+                [System.IO.FileOptions]::None,
+                $acl
+            )
+            $fs.Write($bytes, 0, $bytes.Length)
+            $fs.Flush()
+        } finally {
+            if ($fs) { $fs.Dispose() }
+        }
     }
 
     return $path

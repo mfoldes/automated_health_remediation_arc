@@ -95,6 +95,7 @@ function Invoke-ArcRemediation {
         [Parameter()] [string]$ConfigPath = (Join-Path $env:ProgramData 'ArcRemediator\config.json'),
         [Parameter()] [string]$StatePath = (Join-Path $env:ProgramData 'ArcRemediator\state.json'),
         [Parameter()] [string]$LogDirectory = (Join-Path $env:ProgramData 'ArcRemediator\logs'),
+        [Parameter()] [string]$PendingDir = $(if ($env:ProgramData) { Join-Path $env:ProgramData 'ArcRemediator\pending' }),
         [Parameter()] [ValidateSet('Observe', 'Enforce')] [string]$OverrideMode,
         [Parameter()] [string]$AzcmagentPath
     )
@@ -140,6 +141,16 @@ function Invoke-ArcRemediation {
             return New-RunResult -Outcome $outcomeString -Detail $outcomeDetail -Row $null -LogIngestionFailed $false -Elapsed $sw
         }
         $cfg = Get-DecryptedConfig -Path $ConfigPath
+
+        # ---- Schema validation immediately after decrypt -------------------
+        $schemaResult = Test-ConfigSchema -Config $cfg
+        if (-not $schemaResult.IsValid) {
+            $outcomeString = 'ConfigMismatch'
+            $outcomeDetail = "Config schema validation failed: $($schemaResult.Failures -join '; ')"
+            Write-LocalLog -Level 'Error' -Message $outcomeDetail -Directory $LogDirectory
+            return New-RunResult -Outcome $outcomeString -Detail $outcomeDetail -Row $null -LogIngestionFailed $false -Elapsed $sw
+        }
+
         $state = Get-RemediatorState -Path $StatePath
 
         $mode = if ($OverrideMode) { $OverrideMode } else { [string]$cfg.Mode }
@@ -152,6 +163,7 @@ function Invoke-ArcRemediation {
         if (-not $kill.CanProceed) {
             $outcomeString = 'FleetPaused'
             $outcomeDetail = "Kill switch did not unlock the run (reason=$($kill.Reason))."
+            Write-SecurityEventLog -EventId 1007 -Message "ArcRemediator: kill switch triggered on machine $env:COMPUTERNAME (reason=$($kill.Reason))." -EntryType 'Warning'
             $row = New-RemediatorRow -EventTimeUtc $eventTime -CloudProfile $cfg.CloudProfile -ScriptMode $mode `
                 -Outcome $outcomeString -OutcomeDetail $outcomeDetail `
                 -SubscriptionId $cfg.SubscriptionId -ResourceGroupName $null -MachineName $env:COMPUTERNAME `
@@ -220,6 +232,19 @@ function Invoke-ArcRemediation {
             return New-RunResult -Outcome $outcomeString -Detail $outcomeDetail -Row $null -LogIngestionFailed $false -Elapsed $sw
         }
 
+        # Cert expiry warning (Certificate credential path only; best-effort)
+        if ($cfg.ArcCredential.CredentialType -eq 'Certificate' -and $cfg.ArcCredential.CertificateThumbprint) {
+            try {
+                $certWarning = Get-CertificateExpiryWarning -Thumbprint $cfg.ArcCredential.CertificateThumbprint
+                if ($certWarning) {
+                    Write-LocalLog -Level 'Warn' -Message $certWarning -Directory $LogDirectory
+                }
+            } catch {
+                # Best-effort; never fail the run on a cert-check error.
+                $null = $_
+            }
+        }
+
         # ---- 6. ARM GET classifier ----------------------------------------
         $resourceState = Get-AzureResourceState -CloudProfile $cloudProfile `
             -SubscriptionId $cfg.SubscriptionId -ResourceGroupName $localRg -MachineName $localName `
@@ -240,7 +265,7 @@ function Invoke-ArcRemediation {
             $outcomeString = $earlyOutcome
             $outcomeDetail = $earlyDetail
             $row = Resolve-RemediationRow $eventTime $cfg $mode $outcomeString $outcomeDetail $resourceState $connectivity $localRg $localName $state @() @() $errorMessage $sw
-            $logIngestionFailed = -not (Send-RowOrLogFailure $cfg $row $monitorToken $LogDirectory)
+            $logIngestionFailed = -not (Send-RowOrLogFailure $cfg $row $monitorToken $LogDirectory $PendingDir)
             return New-RunResult -Outcome $outcomeString -Detail $outcomeDetail -Row $row -LogIngestionFailed $logIngestionFailed -Elapsed $sw
         }
 
@@ -266,7 +291,7 @@ function Invoke-ArcRemediation {
         $row = Resolve-RemediationRow $eventTime $cfg $mode $outcomeString $outcomeDetail $resourceState $connectivity $localRg $localName $state $actionsAttempted $actionsSuccessful $errorMessage $sw `
             -ProbeAzcmagentCheck $probeCheck -ProbeServices $probeServices -ProbeCertificate $probeCert -ProbeTimeSync $probeTime -ProbeAgentVersion $probeVersion
 
-        $logIngestionFailed = -not (Send-RowOrLogFailure $cfg $row $monitorToken $LogDirectory)
+        $logIngestionFailed = -not (Send-RowOrLogFailure $cfg $row $monitorToken $LogDirectory $PendingDir)
 
         return New-RunResult -Outcome $outcomeString -Detail $outcomeDetail -Row $row -LogIngestionFailed $logIngestionFailed -Elapsed $sw
 
@@ -362,7 +387,8 @@ function Send-RowOrLogFailure {
         [PSObject]$Config,
         [hashtable]$Row,
         [PSObject]$MonitorToken,
-        [string]$LogDirectory
+        [string]$LogDirectory,
+        [string]$PendingDir
     )
     if (-not $Config -or -not $Row -or -not $MonitorToken) { return $false }
     try {
@@ -373,11 +399,29 @@ function Send-RowOrLogFailure {
             -Rows @($Row)
         if (-not $send.Success) {
             Write-LocalLog -Level 'Warn' -Message "LogIngestionFailure: $($send.ErrorMessage)" -Directory $LogDirectory
+            # Queue the row for retry on the next successful run.
+            if ($PendingDir) {
+                Add-PendingLogRow -Row $Row -PendingDir $PendingDir
+            }
             return $false
+        }
+        # Re-send any queued pending rows now that ingestion is working.
+        if ($PendingDir -and $Config.LogIngestionEndpoint -and $Config.DcrImmutableId) {
+            try {
+                $null = Send-PendingLogRows `
+                    -PendingDir $PendingDir `
+                    -LogIngestionEndpoint $Config.LogIngestionEndpoint `
+                    -DcrImmutableId $Config.DcrImmutableId `
+                    -StreamName ([string]$Config.StreamName) `
+                    -AccessToken $MonitorToken.AccessToken
+            } catch { $null = $_ }
         }
         return $true
     } catch {
         Write-LocalLog -Level 'Warn' -Message "LogIngestionFailure (exception): $($_.Exception.Message)" -Directory $LogDirectory
+        if ($PendingDir) {
+            try { Add-PendingLogRow -Row $Row -PendingDir $PendingDir } catch { $null = $_ }
+        }
         return $false
     }
 }

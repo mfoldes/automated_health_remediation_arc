@@ -1,6 +1,8 @@
 #Requires -Version 5.1
 
 function Get-RetryAfterSeconds {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'Seconds is the unit of the Retry-After header per RFC 7231; "Get-RetryAfterSecond" would misrepresent the return value type as a single tick, not a count.')]
     [CmdletBinding()]
     [OutputType([int])]
     param(

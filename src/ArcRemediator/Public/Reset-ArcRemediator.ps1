@@ -128,6 +128,8 @@ function Reset-ArcRemediator {
         $null = $_
     }
 
+    Write-SecurityEventLog -EventId 1003 -Message "ArcRemediator: manual breaker reset by $caller on machine $env:COMPUTERNAME. PreviousBreakerTripped=$($before.BreakerTripped), ExpiredCleared=$expiredCleared." -EntryType 'Information'
+
     return [PSCustomObject]@{
         Reset = $true
         ResetByUser = $caller
