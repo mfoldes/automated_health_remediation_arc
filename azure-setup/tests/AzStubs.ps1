@@ -94,3 +94,18 @@ function New-AzOperationalInsightsWorkspace {
 function Invoke-AzRestMethod {
     param([string]$Path, [string]$Method, [string]$Payload)
 }
+
+# ---- Az.Monitor (diagnostic settings + scheduled query rules) ----
+function Set-AzDiagnosticSetting {
+    param([string]$ResourceId, [string]$Name, [string]$WorkspaceId, [bool]$EnableLog, [string[]]$Category)
+}
+function New-AzScheduledQueryRuleCriteria {
+    param([string]$Query, [string]$TimeAggregation, [string]$Operator, [int]$Threshold,
+          [int]$FailingPeriodNumberOfEvaluationPeriods, [int]$FailingPeriodMinFailingPeriodsToAlert)
+}
+function New-AzScheduledQueryRule {
+    param([string]$ResourceGroupName, [string]$Name, [string]$Location, [string]$DisplayName,
+          [string]$Description, [string[]]$Scope, [int]$Severity, [bool]$Enabled,
+          [string]$EvaluationFrequency, [string]$WindowSize, $CriterionAllOf,
+          [string[]]$ActionGroupResourceId, [switch]$SkipQueryValidation)
+}

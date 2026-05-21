@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
     .SYNOPSIS
         Install (or upgrade) ArcRemediator on a target Windows server.
@@ -88,6 +88,11 @@
         the installer as a non-admin in a lab; the resulting install
         is not production-safe.
 
+    .PARAMETER SkipEventLogSetup
+        Skip Windows Event Log source registration and logs-directory SACL
+        setup. Use this in CI/test environments where the event log APIs
+        are unavailable.
+
     .PARAMETER Validate
         Run Test-ArcInstallation immediately after install. The
         result object includes a Validation field with per-step
@@ -111,6 +116,7 @@ param(
     [Parameter()] [switch]$SkipElevationCheck,
     [Parameter()] [switch]$SkipEditionCheck,
     [Parameter()] [switch]$SkipAclHardening,
+    [Parameter()] [switch]$SkipEventLogSetup,
     [Parameter()] [switch]$Validate,
     [Parameter()] [switch]$ValidateSkipLogIngestion
 )
@@ -191,7 +197,41 @@ function Register-RemediatorScheduledTask {
         -Principal $principal -Settings $settings | Out-Null
 }
 
-# ---- Pre-flight ----------------------------------------------------------
+function Register-RemediatorEventSource {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Internal helper to Install.ps1; that script gates the call via its own SupportsShouldProcess.')]
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string]$LogsDir)
+    # Register the Windows Event Log source so Write-SecurityEventLog can write entries.
+    if (-not [System.Diagnostics.EventLog]::SourceExists('ArcRemediator')) {
+        New-EventLog -LogName 'Application' -Source 'ArcRemediator' -ErrorAction SilentlyContinue
+    }
+    # Add a SACL on the logs directory so any delete or write triggers a
+    # Windows Security audit event (ID 4663) — harder for a local attacker
+    # to suppress than the remediator's own log files.
+    try {
+        $acl = Get-Acl -LiteralPath $LogsDir -Audit
+        $everyone = New-Object System.Security.Principal.SecurityIdentifier 'S-1-1-0'
+        $inherit = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor `
+                   [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+        $prop = [System.Security.AccessControl.PropagationFlags]::None
+        $auditFlags = [System.Security.AccessControl.AuditFlags]::Success
+        # Audit Write+Delete by anyone so log deletions appear in the Security event log.
+        $rule = New-Object System.Security.AccessControl.FileSystemAuditRule(
+            $everyone,
+            ([System.Security.AccessControl.FileSystemRights]::WriteData -bor
+             [System.Security.AccessControl.FileSystemRights]::Delete),
+            $inherit, $prop, $auditFlags)
+        $acl.AddAuditRule($rule)
+        Set-Acl -LiteralPath $LogsDir -AclObject $acl -ErrorAction SilentlyContinue
+    } catch {
+        # Best-effort: SACL setup may fail on systems where audit policy does
+        # not permit SACL modification by the installer account. Do not abort.
+        $null = $_
+    }
+}
+
+
 
 if (-not $SkipEditionCheck -and $PSVersionTable.PSEdition -ne 'Desktop') {
     throw "Install.ps1: PowerShell Desktop edition (5.1) is required; current edition is '$($PSVersionTable.PSEdition)'. The module is pinned to Desktop in the manifest. -SkipEditionCheck is permitted only in test contexts."
@@ -252,6 +292,14 @@ if (-not (Test-Path -LiteralPath $DataPath)) {
 $logsDir = Join-Path $DataPath 'logs'
 if (-not (Test-Path -LiteralPath $logsDir)) {
     New-Item -Path $logsDir -ItemType Directory -Force | Out-Null
+}
+
+# ---- 3b. Event log source + SACL -----------------------------------------
+
+if (-not $SkipEventLogSetup) {
+    if ($PSCmdlet.ShouldProcess('ArcRemediator event log source', 'Register Windows Event Log source and set logs-dir SACL')) {
+        Register-RemediatorEventSource -LogsDir $logsDir
+    }
 }
 
 # ---- 4. DPAPI-wrap config (BEFORE applying the restrictive ACL, so the

@@ -37,6 +37,29 @@ function Set-RemediatorState {
 
     $json = $State | ConvertTo-Json -Depth 10
 
+    # Remove any existing StateHmac field from the JSON before computing a
+    # fresh HMAC so the hash covers stable content only (not itself).
+    $stateForHmac = $State | Select-Object -Property * -ExcludeProperty StateHmac
+    $jsonForHmac = $stateForHmac | ConvertTo-Json -Depth 10
+
+    $hmacKey = $null
+    try {
+        $hmacKey = Get-StateHmacKey -Create
+    } catch {
+        $hmacKey = $null
+    }
+    if ($hmacKey) {
+        try {
+            $hmacValue = Get-StateHmac -Json $jsonForHmac -Key $hmacKey
+            # Rebuild the final JSON with the HMAC appended.
+            $stateForHmac | Add-Member -NotePropertyName 'StateHmac' -NotePropertyValue $hmacValue -Force
+            $json = $stateForHmac | ConvertTo-Json -Depth 10
+        } catch {
+            # HMAC computation failed; write without signature rather than blocking the run.
+            $json = $State | ConvertTo-Json -Depth 10
+        }
+    }
+
     if (-not $PSCmdlet.ShouldProcess($Path, 'Write remediator state')) {
         return
     }
