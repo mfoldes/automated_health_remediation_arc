@@ -289,18 +289,37 @@ cloud: $AzcmagentCloud
     # ensures we never overwrite an existing file (prevents symlink /
     # overwrite attacks). FileShare::None locks the file exclusively
     # while we write the secret content.
+    #
+    # The 7-arg FileStream(FileSecurity) constructor only exists in
+    # .NET Framework (Windows PowerShell 5.1). In .NET 6+ (PowerShell 7+)
+    # it was removed; the documented replacement is the static extension
+    # method [System.IO.FileSystemAclExtensions]::Create which provides
+    # the same atomic ACL-at-creation semantics. We branch on PSEdition
+    # so the security guarantee is preserved on both runtimes.
     $bytes = [System.Text.Encoding]::ASCII.GetBytes($content)
     $fs = $null
     try {
-        $fs = [System.IO.FileStream]::new(
-            $path,
-            [System.IO.FileMode]::CreateNew,
-            [System.Security.AccessControl.FileSystemRights]::FullControl,
-            [System.IO.FileShare]::None,
-            4096,
-            [System.IO.FileOptions]::None,
-            $acl
-        )
+        if ($PSVersionTable.PSEdition -eq 'Core') {
+            $fs = [System.IO.FileSystemAclExtensions]::Create(
+                $acl,
+                $path,
+                [System.IO.FileMode]::CreateNew,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.IO.FileShare]::None,
+                4096,
+                [System.IO.FileOptions]::None
+            )
+        } else {
+            $fs = [System.IO.FileStream]::new(
+                $path,
+                [System.IO.FileMode]::CreateNew,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.IO.FileShare]::None,
+                4096,
+                [System.IO.FileOptions]::None,
+                $acl
+            )
+        }
         $fs.Write($bytes, 0, $bytes.Length)
         $fs.Flush()
     } finally {
