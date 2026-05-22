@@ -301,4 +301,60 @@ Describe 'Invoke-ExpiredRejoin' {
             }
         }
     }
+
+    Context 'Mid-rejoin recovery: ResourceNotFound skips DELETE and disconnect' {
+        It 'skips Remove-ArcResource and Invoke-AzcmagentDisconnect but calls connect; marker IS written' {
+            $statePath = New-EphemeralStatePath
+            try {
+                InModuleScope ArcRemediator -Parameters @{ cs = New-HealthyConnectivity; cred = New-CertCredential; sp = $statePath } {
+                    param($cs, $cred, $sp)
+                    $env:T_SKIP_CALLS = '0'
+                    Mock Get-AzureResourceState -MockWith {
+                        $env:T_SKIP_CALLS = ([int]$env:T_SKIP_CALLS + 1).ToString()
+                        if ([int]$env:T_SKIP_CALLS -le 1) {
+                            # Pre-destructive re-read: ARM resource already deleted by prior attempt.
+                            return [PSCustomObject]@{
+                                Classification = 'ResourceNotFound'; StatusCode = 404; ETag = $null
+                                Tags = $null; Location = $null; Name = 'm'; Raw = $null
+                                ErrorMessage = 'Resource does not exist.'
+                            }
+                        }
+                        # Final verification after connect: now Connected.
+                        return [PSCustomObject]@{
+                            Classification = 'Connected'; StatusCode = 200; ETag = 'W/"post"'
+                            Tags = ([PSCustomObject]@{}); Location = 'eastus'; Name = 'm'; Raw = $null; ErrorMessage = $null
+                        }
+                    }
+                    Mock Remove-ArcResource { throw 'Remove-ArcResource MUST NOT be called when ARM resource is already gone' }
+                    Mock Invoke-AzcmagentDisconnect { throw 'Invoke-AzcmagentDisconnect MUST NOT be called when resuming mid-rejoin' }
+                    Mock Invoke-AzcmagentConnect -MockWith {
+                        [PSCustomObject]@{
+                            ProcessResult = [PSCustomObject]@{ ExitCode=0; Stdout='ok'; Stderr=''; TimedOut=$false; Duration=[timespan]::FromSeconds(1) }
+                            UsedConfigFile = $false; GatewayHonored = $false; AutomaticUpgradeHonored = $false; WhatIf = $false
+                        }
+                    }
+                    # No tags on the pre-read (resource gone), none in PreservedTags -> no tag restore needed.
+                    Mock Set-AzureResourceTags { throw 'Set-AzureResourceTags should not be called when no tags to restore' }
+
+                    $r = Invoke-ExpiredRejoin -CloudProfile (Get-CloudProfile -Name 'Commercial') `
+                        -ArcCredential $cred -AccessToken 'tok' `
+                        -SubscriptionId 'sub' -ResourceGroupName 'rg' -MachineName 'm' `
+                        -ConnectivitySettings $cs -StatePath $sp -Confirm:$false
+
+                    $r.Outcome       | Should -Be 'ExpiredRejoined'
+                    $r.MarkerWritten | Should -BeTrue
+                    $r.AttemptId     | Should -Not -BeNullOrEmpty
+                    Should -Invoke Remove-ArcResource         -Times 0 -Exactly
+                    Should -Invoke Invoke-AzcmagentDisconnect -Times 0 -Exactly
+                    Should -Invoke Invoke-AzcmagentConnect    -Times 1 -Exactly
+                }
+                # State file must exist with Completed outcome.
+                (Test-Path -LiteralPath $statePath) | Should -BeTrue
+                $persisted = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+                $persisted.LastExpiredAttemptOutcome | Should -Be 'Completed'
+            } finally {
+                Remove-Item -LiteralPath $statePath -ErrorAction SilentlyContinue
+            }
+        }
+    }
 }

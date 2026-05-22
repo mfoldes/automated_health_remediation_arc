@@ -9,6 +9,65 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/).
 
 ### Added
 
+- **`Remediation=Paused` per-host tag gate implemented** (previously documented but not
+  enforced). `Invoke-OrchestratorDispatch` now checks the Arc resource tag
+  `Remediation=Paused` (case-sensitive) before running any probes or taking any
+  action. Returns `OutcomeString='MachinePaused'` immediately, which maps to
+  exit code 0 via `ConvertTo-RemediatorExitCode`. Property iteration uses an
+  explicit `foreach` over `PSObject.Properties` (not `.Properties.Name`) to avoid
+  a `Set-StrictMode -Version 3.0` failure on an empty `PSCustomObject` tag bag.
+  New tests in `tests/unit/OrchestratorDispatch.Tests.ps1` cover: Paused tag →
+  MachinePaused (no probes called), wrong case → not triggered, empty tag bag →
+  not triggered.
+
+- **Agent certificate NearExpiry/Expired escalates to NeedsHuman.** In the
+  Disconnected branch of `Invoke-OrchestratorDispatch`, if
+  `Get-AgentCertificateProbe` returns `Status='Expired'` or `Status='NearExpiry'`
+  the outcome is forced to `NeedsHuman` with a detail message that includes
+  `DaysUntilExpiry`. A service-restart cannot heal an expired agent cert; this
+  prevents futile reconnect attempts and surfaces the host for operator action.
+  Honored in both Observe and Enforce modes. Tests added for both cert states.
+
+- **Reconnect-only short cooldown for mid-rejoin failures.** After a failed Expired
+  rejoin where the ARM DELETE succeeded but a later step failed (`ConnectFailed`,
+  `TagsNotRestored`, or `VerificationFailed`), the next attempt is allowed after a
+  configurable window (new config key `ReconnectOnlyCooldownHours`, default 24 h)
+  instead of the flat 7-day cooldown. Recognized outcomes map exactly to what
+  `Complete-Marker` writes. `DeleteFailed` still earns the full 7-day cooldown
+  (the ARM resource is intact; a new attempt is destructive). Tests: within-24h
+  ConnectFailed → CooldownSkipped; outside-6h ConnectFailed with 6-h config →
+  retry proceeds; `Set-StrictMode -Version 3.0`-safe property checks throughout.
+
+- **Skip-DELETE recovery for mid-rejoin crash.** `Invoke-ExpiredRejoin` now
+  detects `Classification='ResourceNotFound'` on the pre-destructive ARM re-read.
+  When the resource is already gone (a prior run deleted it but crashed before
+  the connect step), the function skips `Remove-ArcResource` and
+  `Invoke-AzcmagentDisconnect`, writes the InProgress marker, and resumes from
+  `Invoke-AzcmagentConnect`. The synthesized `$deleteResult` carries
+  `Skipped=$true` and a `SkipReason`. WhatIf action text is differentiated for
+  the skip-delete path. Tests confirm: Remove-ArcResource not called, Disconnect
+  not called, Connect called once, marker written, state file outcome = Completed.
+
+- **`ReconnectOnlyCooldownHours` config key** added to `$knownKeys` in
+  `Test-ConfigSchema.ps1`. Setting it in the config overrides the default 24-hour
+  reconnect-only cooldown. Any positive integer value in hours is valid.
+
+- **Bicep alert modules** in `azure-setup/bicep/modules/`:
+  - `killswitch-alert.bicep`: enables `StorageBlobLogs` diagnostic settings on
+    the kill-switch storage account blob service (→ LAW) and creates a Scheduled
+    Query Rule (severity=Critical) that fires within 10 minutes of any successful
+    write to the kill-switch blob. Partially mitigates STRIDE finding R6.
+  - `alerts.bicep`: four Scheduled Query Rules over `ArcRemediation_CL`:
+    - `arc-remediator-expired-rejoin-failure` (severity=Error, 15-min evaluation)
+    - `arc-remediator-needs-human` (severity=Warning, hourly evaluation)
+    - `arc-remediator-silent-servers` (severity=Warning, 2-h evaluation; threshold
+      38 h = 36 h + 2 h buffer)
+    - `arc-remediator-breaker-tripped` (severity=Error, hourly evaluation)
+  - Both modules are wired into `main.bicep` behind `alertsEnabled` and
+    `alertActionGroupIds` parameters (both default to off/empty; no breaking change).
+
+### Changed
+
 - GitHub Actions CI (`.github/workflows/ci.yml`) with three jobs on
   `windows-latest`:
   - `static`: Parser sweep + PSScriptAnalyzer on Windows PowerShell 5.1

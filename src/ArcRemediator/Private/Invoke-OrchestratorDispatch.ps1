@@ -98,6 +98,34 @@ function Invoke-OrchestratorDispatch {
     $outcomeString = $null
     $outcomeDetail = $null
 
+    # ---- Per-host pause (checked BEFORE probes and BEFORE any branching) ----
+    # Operators set the Arc resource tag 'Remediation=Paused' (case-sensitive)
+    # when they want this single host skipped without pausing the whole fleet.
+    # Honored in BOTH modes; runs no probes and takes no action. Returns
+    # outcome 'MachinePaused' which maps to exit code 0 via
+    # ConvertTo-RemediatorExitCode (Task Scheduler last-run = Success).
+    #
+    # Property enumeration uses an explicit foreach because under
+    # Set-StrictMode -Version 3.0 the `.Properties.Name` accessor throws
+    # on an empty PSCustomObject (no properties to splat from).
+    if ($ResourceState.Tags) {
+        foreach ($tagProp in $ResourceState.Tags.PSObject.Properties) {
+            if ($tagProp.Name -ceq 'Remediation' -and ([string]$tagProp.Value) -ceq 'Paused') {
+                return [PSCustomObject]@{
+                    OutcomeString     = 'MachinePaused'
+                    OutcomeDetail     = "Arc resource tag 'Remediation=Paused' is set; no probes, no actions."
+                    ActionsAttempted  = @()
+                    ActionsSuccessful = @()
+                    ProbeCheck        = $null
+                    ProbeServices     = $null
+                    ProbeCert         = $null
+                    ProbeTime         = $null
+                    ProbeVersion      = $null
+                }
+            }
+        }
+    }
+
     # ---- Probes (read-only in all modes) ------------------------------------
     $probeCheck    = $null
     $probeServices = $null
@@ -128,6 +156,20 @@ function Invoke-OrchestratorDispatch {
                 $outcomeString = 'NeedsHuman'
                 $outcomeDetail = [string]$Connectivity.NeedsHumanReason
                 break
+            }
+            # Arc agent certificate expired or near expiry: a service
+            # restart will not heal an expired agent cert. Escalate to
+            # NeedsHuman so an operator (or a separate workflow) can
+            # decide between an in-place agent reset and a full
+            # delete-and-rejoin. Honored in both Observe and Enforce.
+            if ($probeCert -and ($probeCert.PSObject.Properties.Name -contains 'Status')) {
+                $certStatus = [string]$probeCert.Status
+                if ($certStatus -in @('Expired', 'NearExpiry')) {
+                    $daysLeft = if ($probeCert.PSObject.Properties.Name -contains 'DaysUntilExpiry') { $probeCert.DaysUntilExpiry } else { $null }
+                    $outcomeString = 'NeedsHuman'
+                    $outcomeDetail = "Arc agent certificate is $certStatus (DaysUntilExpiry=$daysLeft); service repair cannot heal an expired/near-expiry agent cert."
+                    break
+                }
             }
             if ($Mode -eq 'Observe') {
                 $outcomeString = 'ObserveOnly'
@@ -186,15 +228,38 @@ function Invoke-OrchestratorDispatch {
                 $outcomeDetail = "SelfDeadlineHit: run elapsed $([int]$Sw.Elapsed.TotalMinutes) min >= MaxRuntimeMinutes=$maxRuntimeMin; deferring destructive remediation to next scheduled run."
                 break
             }
-            # Cooldown: no more than one attempt per 7 days.
+            # Cooldown: full 7 days for a fresh attempt; shorter window
+            # when the last attempt's failure mode means the destructive
+            # DELETE already succeeded but a later step (connect / tag
+            # restore / final verify) failed. In that case the next
+            # attempt skips the DELETE entirely (see Invoke-ExpiredRejoin
+            # "ResourceNotFound on pre-destructive re-read"), so burning
+            # a full 7-day cooldown leaves the host stranded for no good
+            # safety reason. Configurable via Config.ReconnectOnlyCooldownHours
+            # (default 24h).
             if ($State.LastExpiredAttemptStartedUtc) {
                 $started = [datetime]::MinValue
                 if ([datetime]::TryParse([string]$State.LastExpiredAttemptStartedUtc, [ref]$started)) {
-                    $age = ((Get-Date).ToUniversalTime() - $started.ToUniversalTime())
-                    if ($age.TotalDays -lt 7) {
-                        $outcomeString = 'CooldownSkipped'
-                        $outcomeDetail = "Expired rejoin within 7-day cooldown (started $($State.LastExpiredAttemptStartedUtc), outcome=$($State.LastExpiredAttemptOutcome))."
-                        break
+                    $reconnectOnlyOutcomes = @('ConnectFailed', 'TagsNotRestored', 'VerificationFailed')
+                    $isReconnectOnly = ($State.PSObject.Properties.Name -contains 'LastExpiredAttemptOutcome') -and ([string]$State.LastExpiredAttemptOutcome -in $reconnectOnlyOutcomes)
+                    if ($isReconnectOnly) {
+                        $reconnectCooldownHours = 24
+                        if ($Config.PSObject.Properties.Name -contains 'ReconnectOnlyCooldownHours' -and $null -ne $Config.ReconnectOnlyCooldownHours) {
+                            $reconnectCooldownHours = [int]$Config.ReconnectOnlyCooldownHours
+                        }
+                        $age = ((Get-Date).ToUniversalTime() - $started.ToUniversalTime())
+                        if ($age.TotalHours -lt $reconnectCooldownHours) {
+                            $outcomeString = 'CooldownSkipped'
+                            $outcomeDetail = "Expired rejoin within $reconnectCooldownHours-hour reconnect-only cooldown (started $($State.LastExpiredAttemptStartedUtc), outcome=$($State.LastExpiredAttemptOutcome))."
+                            break
+                        }
+                    } else {
+                        $age = ((Get-Date).ToUniversalTime() - $started.ToUniversalTime())
+                        if ($age.TotalDays -lt 7) {
+                            $outcomeString = 'CooldownSkipped'
+                            $outcomeDetail = "Expired rejoin within 7-day cooldown (started $($State.LastExpiredAttemptStartedUtc), outcome=$($State.LastExpiredAttemptOutcome))."
+                            break
+                        }
                     }
                 }
             }

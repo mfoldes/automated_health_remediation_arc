@@ -288,6 +288,8 @@ Open the file you wrote to `-ConfigOutputPath` (for example `config.commercial.s
 | `LogIngestionEndpoint`, `DcrImmutableId`, `StreamName` | Set by the script. |
 | `KillSwitchUrl` | Set by the script. |
 | `Mode` | Leave as `Observe` for first installs. |
+| `MaxRuntimeMinutes` | Optional. Minutes before the run self-aborts before entering the destructive Expired-rejoin path. Default: 45. Set lower if your task scheduler `ExecutionTimeLimit` is below 60 minutes. |
+| `ReconnectOnlyCooldownHours` | Optional. Hours to wait before retrying when the previous attempt's ARM DELETE succeeded but a later step failed (`ConnectFailed`, `TagsNotRestored`, or `VerificationFailed`). Default: 24. The full 7-day cooldown still applies when `DeleteFailed`. |
 
 Keep this file safe and out of source control. The installer encrypts it before storing it on each server, but the plaintext copy is sensitive.
 

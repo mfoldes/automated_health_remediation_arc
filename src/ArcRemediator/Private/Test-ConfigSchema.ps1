@@ -120,7 +120,8 @@ function Test-ConfigSchema {
         'SubscriptionId', 'KillSwitchUrl',
         'CloudProfile', 'Mode', 'CircuitBreakerFailureThreshold',
         'ScopedResourceGroups', 'BreakerResetUrl', 'EnableAutomaticAgentUpgrade',
-        'MaxRuntimeMinutes', 'ArcCredential', 'MonitorCredential',
+        'MaxRuntimeMinutes', 'ReconnectOnlyCooldownHours',
+        'ArcCredential', 'MonitorCredential',
         'LogIngestionEndpoint', 'DcrImmutableId', 'StreamName',
         'PrivateLinkScopeResourceId', 'ArcGatewayResourceId', 'ProxyUrl', 'Version'
     )

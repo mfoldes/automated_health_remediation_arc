@@ -35,6 +35,16 @@ function Invoke-ExpiredRejoin {
                  Outcome=Aborted - the run is then recoverable on the
                  next pass without burning a cooldown slot.
 
+                 EXCEPTION: when the re-read returns 'ResourceNotFound'
+                 the ARM resource is already gone. This is the
+                 mid-rejoin recovery shape: a previous attempt
+                 successfully ran ARM DELETE but failed in a later
+                 step (azcmagent connect, tag PATCH, or final verify).
+                 In that case we skip the DELETE + local disconnect
+                 (both are no-ops) and proceed straight to azcmagent
+                 connect. A fresh marker is written so the cooldown
+                 clock restarts from this attempt.
+
               3. Writes the durable Expired attempt marker
                  (LastExpiredAttemptId / StartedUtc / ResourceId /
                  Outcome='InProgress') BEFORE the first destructive
@@ -174,7 +184,13 @@ function Invoke-ExpiredRejoin {
         -SubscriptionId $SubscriptionId -ResourceGroupName $ResourceGroupName `
         -MachineName $MachineName -AccessToken $AccessToken
 
-    if ($preState.Classification -ne 'Expired') {
+    # Mid-rejoin recovery: a prior attempt deleted the ARM resource but
+    # failed in a later step. Skip the DELETE + disconnect (both are
+    # already done / no-ops) and resume from azcmagent connect.
+    $skipDelete = $false
+    if ($preState.Classification -eq 'ResourceNotFound') {
+        $skipDelete = $true
+    } elseif ($preState.Classification -ne 'Expired') {
         return New-RejoinOutcome -Outcome 'Aborted' `
             -Detail "Immediate pre-destructive ARM re-read classified '$($preState.Classification)' (expected 'Expired'). Marker not written; run is repeatable next pass." `
             -Start $start
@@ -182,6 +198,9 @@ function Invoke-ExpiredRejoin {
 
     # Prefer the JUST-READ values for location/tags so a concurrent change
     # cannot trick us into restoring stale tags on top of fresh ones.
+    # When skipDelete is true the ARM resource is already gone so the
+    # re-read has no Tags/Location; fall back to the caller-supplied
+    # values that were captured before the previous attempt's DELETE.
     $effectiveLocation = if ($preState.Location) { [string]$preState.Location } elseif ($PreservedLocation) { $PreservedLocation } else { [string]$ConnectivitySettings.Location }
     $effectiveTags = if ($preState.Tags) { $preState.Tags } else { $PreservedTags }
 
@@ -191,7 +210,8 @@ function Invoke-ExpiredRejoin {
 
     # --- 3. WhatIf - bail out without writing the marker ----------------
     $target = "$MachineName ($ResourceGroupName)"
-    if (-not $PSCmdlet.ShouldProcess($target, 'Delete + rejoin (destructive Expired remediation)')) {
+    $shouldProcessAction = if ($skipDelete) { 'Resume rejoin (azcmagent connect + tag restore; ARM resource already deleted by prior attempt)' } else { 'Delete + rejoin (destructive Expired remediation)' }
+    if (-not $PSCmdlet.ShouldProcess($target, $shouldProcessAction)) {
         return New-RejoinOutcome -Outcome 'WhatIf' -Detail 'WhatIf: destructive sequence not performed.' -Start $start
     }
 
@@ -208,24 +228,44 @@ function Invoke-ExpiredRejoin {
     $markerWritten = $true
 
     # --- 5. ARM DELETE ----------------------------------------------------
-    $deleteResult = Remove-ArcResource -CloudProfile $CloudProfile `
-        -SubscriptionId $SubscriptionId -ResourceGroupName $ResourceGroupName `
-        -MachineName $MachineName -AccessToken $AccessToken `
-        -TimeoutSec $DeleteTimeoutSec -Confirm:$false
+    $deleteResult = $null
+    if ($skipDelete) {
+        $deleteResult = [PSCustomObject]@{
+            Success = $true
+            InitialStatusCode = 404
+            AsyncOperationUrl = $null
+            AsyncResult = $null
+            Verified404 = $true
+            ElapsedSeconds = 0
+            ErrorMessage = $null
+            Skipped = $true
+            SkipReason = 'ResourceNotFound on pre-destructive re-read; ARM resource already deleted by a prior attempt.'
+        }
+    } else {
+        $deleteResult = Remove-ArcResource -CloudProfile $CloudProfile `
+            -SubscriptionId $SubscriptionId -ResourceGroupName $ResourceGroupName `
+            -MachineName $MachineName -AccessToken $AccessToken `
+            -TimeoutSec $DeleteTimeoutSec -Confirm:$false
 
-    if (-not $deleteResult.Success) {
-        Complete-Marker -StatePath $StatePath -AttemptId $attemptId -Outcome 'DeleteFailed'
-        return New-RejoinOutcome -Outcome 'ExpiredRejoinFailure' `
-            -Detail "ARM DELETE failed: $($deleteResult.ErrorMessage)" `
-            -Start $start -AttemptId $attemptId -MarkerWritten $markerWritten `
-            -DeleteResult $deleteResult
+        if (-not $deleteResult.Success) {
+            Complete-Marker -StatePath $StatePath -AttemptId $attemptId -Outcome 'DeleteFailed'
+            return New-RejoinOutcome -Outcome 'ExpiredRejoinFailure' `
+                -Detail "ARM DELETE failed: $($deleteResult.ErrorMessage)" `
+                -Start $start -AttemptId $attemptId -MarkerWritten $markerWritten `
+                -DeleteResult $deleteResult
+        }
     }
 
     # --- 6. azcmagent disconnect --force-local-only ----------------------
     # The disconnect result is intentionally not consumed: the cloud
     # resource is already gone and any local-state issue surfaces in the
     # connect step, where it can be acted on with full context.
-    $null = Invoke-AzcmagentDisconnect -AzcmagentPath $AzcmagentPath
+    # When resuming a prior attempt (skipDelete) the local agent was
+    # already disconnected by the prior run; calling disconnect again is
+    # safe but redundant, so we skip it.
+    if (-not $skipDelete) {
+        $null = Invoke-AzcmagentDisconnect -AzcmagentPath $AzcmagentPath
+    }
 
     # --- 7. azcmagent connect --------------------------------------------
     $connectArgs = @{

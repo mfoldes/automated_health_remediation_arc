@@ -24,6 +24,9 @@ documented lab matrix has passed in that cloud.
 5. [Operate the kill switch](#5-operate-the-kill-switch)
 6. [Install on a target server](#6-install-on-a-target-server)
 7. [Day-to-day operations](#7-day-to-day-operations)
+   - [7.5 Mid-rejoin failures and the reconnect-only cooldown](#75-mid-rejoin-failures-and-the-reconnect-only-cooldown)
+   - [7.6 Agent certificate NearExpiry or Expired](#76-agent-certificate-nearexpiry-or-expired)
+   - [7.7 What to do when you see ResourceNotFound](#77-what-to-do-when-you-see-resourcenotfound)
 8. [Side effects of an Expired delete + rejoin](#8-side-effects-of-an-expired-delete--rejoin)
 9. [Pre-created app registrations](#9-pre-created-app-registrations)
 10. [Credential model](#10-credential-model)
@@ -95,6 +98,23 @@ What this provisions:
 The `-ConfigOutputPath` file is a starter config you copy to each
 target server. Edit it to point the credential blocks at the certs
 or thumbprints the SPs were issued.
+
+To also deploy the Bicep alert rules (kill-switch write alert +
+KQL-based operational alerts), add the `-DeploymentMode Bicep` flag
+and pass `-AlertsEnabled` and an action group resource ID:
+
+```powershell
+.\azure-setup\Setup-AzureSide.ps1 `
+    -CloudProfile Commercial `
+    ... `
+    -DeploymentMode Bicep `
+    -AlertsEnabled `
+    -AlertActionGroupIds @('/subscriptions/<sub>/resourceGroups/<rg>/providers/microsoft.insights/actionGroups/<ag>')
+```
+
+The alert modules are under `azure-setup/bicep/modules/`
+(`killswitch-alert.bicep` and `alerts.bicep`). They are off by
+default; existing deployments are unaffected unless you opt in.
 
 ## 3. Provision the Azure Government DoD/IL5 infra
 
@@ -288,8 +308,27 @@ no tags are written. The return value tells you what the real run
 
 ### 7.3 Reset the local circuit breaker
 
-If a host's circuit breaker tripped during a transient outage and you
-want it to retry sooner than the next 02:00 cycle:
+```powershell
+Reset-ArcRemediator
+```
+
+This clears `BreakerTripped` and `ConsecutiveFailures` and records
+who ran the reset. The 7-day Expired-rejoin cooldown marker is
+preserved by default: it guards destructive remediation, and you
+don't want to silently re-arm it.
+
+If the cooldown also needs clearing (only when you've confirmed the
+previous failure was a transient and not a real rejoin that crashed
+mid-flight):
+
+```powershell
+Reset-ArcRemediator -AlsoClearExpiredAttempt
+```
+
+This is `ConfirmImpact='High'`. Run with `-WhatIf` first if you
+want to preview the change.
+
+### 7.3 Reset the local circuit breaker
 
 ```powershell
 Reset-ArcRemediator
@@ -311,7 +350,50 @@ Reset-ArcRemediator -AlsoClearExpiredAttempt
 This is `ConfirmImpact='High'`. Run with `-WhatIf` first if you
 want to preview the change.
 
-### 7.4 What to do when you see ResourceNotFound
+### 7.5 Mid-rejoin failures and the reconnect-only cooldown
+
+When an Expired-rejoin attempt succeeds in deleting the ARM resource
+but fails in a later step (`ConnectFailed`, `TagsNotRestored`, or
+`VerificationFailed`), the next attempt needs only to reconnect — the
+destructive ARM delete has already happened. The remediator detects
+this and uses a shorter cooldown: `ReconnectOnlyCooldownHours` (default
+24 h) instead of the full 7-day cooldown.
+
+You can tune this per-host by adding `ReconnectOnlyCooldownHours` to
+the config JSON before encrypting. A value of `6` means the host will
+retry the connect step 6 hours after the failure, rather than 24 h.
+
+If a host lands in `ConnectFailed` or `TagsNotRestored` repeatedly:
+
+1. Check `azcmagent show -j` — the agent may be stuck in a bad
+   certificate state (see section 7.6 below).
+2. Verify the Arc SP has the correct role assignments on the resource
+   group (the new resource is created during reconnect with a fresh
+   ARM ID, and the Onboarding role is needed again).
+3. If the host cert is near expiry or expired, the next run will
+   escalate to `NeedsHuman`; see section 7.6.
+
+### 7.6 Agent certificate NearExpiry or Expired
+
+When `Get-AgentCertificateProbe` reports `Status='NearExpiry'` or
+`Status='Expired'`, `Invoke-OrchestratorDispatch` returns `NeedsHuman`
+and does not attempt a reconnect. A service restart cannot heal a bad
+agent certificate; attempting the Expired-rejoin sequence with an
+expired cert will leave the host in `ConnectFailed`.
+
+To resolve:
+
+1. Run `azcmagent show -j` and look at `agentCertExpiry`.
+2. Run `azcmagent check` — it will report cert issues explicitly.
+3. If the cert is near expiry but not yet expired, run the Arc agent
+   upgrader or manually trigger cert renewal:
+   `azcmagent config set config.mode monitor && azcmagent config set config.mode full`
+4. If the cert is already expired, you will need to reonboard the host
+   (`azcmagent disconnect` followed by `azcmagent connect` with a fresh
+   service principal token). This is an operator action, not something
+   the remediator can do for you.
+
+### 7.7 What to do when you see ResourceNotFound
 
 A `ResourceNotFound` outcome means ARM returned 404 when the
 remediator asked about its own Arc resource. The remediator does

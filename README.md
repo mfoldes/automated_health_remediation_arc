@@ -84,7 +84,7 @@ care. Several layers gate it:
 | **Fleet pause** | A SAS-read kill switch. Anything other than the exact word `enabled` in the blob (including network errors) pauses the run before Azure auth. |
 | **Per-machine pause** | An Arc tag `Remediation=Paused` skips remediation on that one host. |
 | **Observe mode** | Non-mutating dry run. The default for new deployments and the only mode any host can use before its cloud passes the lab matrix. |
-| **Cooldown** | One Expired delete-and-rejoin attempt per server per 7 days. The cooldown timer is written to disk **before** the first destructive call, so a crash mid-rejoin cannot loop. |
+| **Cooldown** | At most one destructive delete + re-onboard per server per 7 days. If the DELETE already succeeded in a prior run but a later step failed (connect, tag restore, or final verify), the host is eligible for a reconnect-only retry after a shorter configurable window (default 24 h) rather than waiting the full 7 days. The cooldown timer is written to disk *before* the first destructive call, so a crash mid-rejoin cannot loop. |
 | **Circuit breaker** | After 3 consecutive failed runs the breaker trips and blocks destructive actions until an operator runs `Reset-ArcRemediator`. |
 | **Cluster gate** | Hosts that look like they are part of an Azure Stack HCI cluster (`clusterResourceId`, `extendedLocation`, host-type strings) never get the destructive treatment. They surface as `NeedsHuman`. |
 | **Cloud-profile gate** | A DoD/IL5 host with Arc Gateway configured is a config mismatch. Arc Gateway and automatic agent upgrade are Commercial-only. |

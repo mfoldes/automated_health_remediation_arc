@@ -365,7 +365,7 @@ At fleet scale, if the LAW endpoint is temporarily unreachable during the nightl
 | **STRIDE Category** | Denial of Service |
 | **Severity** | Medium |
 | **Likelihood** | Medium (requires Storage Account RBAC access) |
-| **Status** | Open |
+| **Status** | Partially Mitigated |
 
 #### Description
 
@@ -378,6 +378,11 @@ Similarly, the breaker-reset blob can be written to trigger fleet-wide breaker r
 - `Setup-AzureSide.ps1` creates the Storage Account and generates SAS tokens with `sp=r` (read-only).
 - The kill-switch is fail-closed: anything other than content exactly equaling `enabled` pauses the fleet.
 - The breaker-reset is also fail-closed: unparseable or missing content leaves the breaker tripped.
+- `azure-setup/bicep/modules/killswitch-alert.bicep` enables `StorageBlobLogs` diagnostics on the
+  storage account blob service and creates a Scheduled Query Rule (severity=Critical) that fires within
+  10 minutes of any successful write to the kill-switch blob. Deploy via `main.bicep` with
+  `alertsEnabled=true`. This directly implements the detection control described in the Short-term
+  remediation strategy below.
 
 #### Remediation Strategy
 
@@ -611,7 +616,7 @@ hood      │           │           │           │           │
 | 1 | Add HMAC-SHA256 to `state.json`; fail-closed on mismatch | R2 | Low |
 | 2 | Add `Test-ConfigSchema` validation post-decryption | R7 | Low |
 | 3 | Mandate `CredentialType=Certificate` for production; emit warning for ClientSecret | R1 | Low |
-| 4 | Create Azure Monitor alert for kill-switch blob writes | R6 | Low |
+| 4 | ~~Create Azure Monitor alert for kill-switch blob writes~~ **Done** — `azure-setup/bicep/modules/killswitch-alert.bicep` | R6 | Low |
 | 5 | Create Azure Monitor alert for LAW ingestion gaps (no rows in 48h) | R4 | Low |
 
 ### Phase 2 — Structural Improvements (2–4 weeks)

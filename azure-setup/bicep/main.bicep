@@ -56,6 +56,12 @@ param createDce bool = false
 @description('Data Collection Endpoint name (used when createDce=true).')
 param dceName string = '${dcrName}-dce'
 
+@description('When true, provision the kill-switch write alert and the four KQL alert rules (requires a Log Analytics workspace and the Storage account to already exist).')
+param alertsEnabled bool = false
+
+@description('Optional list of Action Group resource IDs used by alert rules. Ignored when alertsEnabled=false.')
+param alertActionGroupIds array = []
+
 @description('Kill-switch SAS token lifetime in hours. Minimum 24.')
 @minValue(24)
 param sasSasHours int = 8760 // 1 year
@@ -235,6 +241,32 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
       }
     ]
     dataCollectionEndpointId: createDce ? dce.id : null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Optional alert modules (Phase 2 - alertsEnabled=true)
+// ---------------------------------------------------------------------------
+
+module killSwitchAlert 'modules/killswitch-alert.bicep' = if (alertsEnabled) {
+  name: 'killswitch-alert'
+  params: {
+    storageAccountName: storageAccountName
+    workspaceId: workspace.id
+    containerName: containerName
+    blobName: killSwitchBlobName
+    location: location
+    actionGroupIds: alertActionGroupIds
+  }
+}
+
+module kqlAlerts 'modules/alerts.bicep' = if (alertsEnabled) {
+  name: 'kql-alerts'
+  params: {
+    workspaceId: workspace.id
+    tableName: tableName
+    location: location
+    actionGroupIds: alertActionGroupIds
   }
 }
 

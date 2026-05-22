@@ -57,7 +57,7 @@ gate.
 | Fleet kill switch | One Storage blob. Anything other than the literal word `enabled` pauses the entire fleet before Azure auth happens. Reachable even with broken credentials. |
 | Per-host pause | Tag the Arc resource `Remediation=Paused` to skip that one host. |
 | Observe mode | The tool starts in dry-run mode. Nothing changes in Azure or on the host until an operator explicitly promotes that cloud to Enforce after the lab matrix passes. |
-| 7-day cooldown | At most one destructive delete + re-onboard per server per week. The cooldown timer is written to disk *before* the destructive call, so a crash mid-rejoin cannot loop. |
+| 7-day cooldown | At most one destructive delete + re-onboard per server per week. If the DELETE already succeeded in a prior attempt but a later step (connect / tag restore / verify) failed, the host is eligible for a reconnect-only retry after a shorter configurable window (default 24 h) instead of waiting the full 7 days. The cooldown timer is written to disk *before* the destructive call, so a crash mid-rejoin cannot loop. |
 | Circuit breaker | After 3 consecutive failed runs on a host, all further destructive actions stop until an operator runs `Reset-ArcRemediator`. |
 | Cluster gate | Hosts that look like Azure Stack HCI / cluster-backed machines never get the destructive treatment - they surface as `NeedsHuman`. |
 | Cloud-profile gate | A DoD/IL5 config on a Commercial host (or vice versa) fails closed before a single token is acquired. |
@@ -93,7 +93,7 @@ gate.
 The code, installer, packaging, and operator docs are **all
 complete**:
 
-- 100+ source files; 292 Pester unit tests; clean PSScriptAnalyzer.
+- 100+ source files; comprehensive Pester unit test coverage; clean PSScriptAnalyzer.
 - One-command installer (`Install.ps1 -Validate`) that DPAPI-wraps
   the config, applies the documented ACLs, registers the scheduled
   task, and runs a five-step active probe to confirm the setup.
