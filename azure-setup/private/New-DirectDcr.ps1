@@ -163,7 +163,7 @@ function New-DirectDcr {
         return
     }
 
-    $response = Invoke-AzRestMethod -Path "${dcrPath}?api-version=2023-03-11" -Method 'PUT' -Payload $payload -ErrorAction Stop
+    $response = Invoke-AzRestMethod -Path "${dcrPath}?api-version=2024-03-11" -Method 'PUT' -Payload $payload -ErrorAction Stop
     if ($response.StatusCode -ge 400) {
         throw "Failed to PUT DCR '$DcrName': HTTP $($response.StatusCode) - $($response.Content)"
     }

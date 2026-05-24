@@ -172,7 +172,7 @@ Describe 'New-LawAndTable' {
             Assert-MockCalled Invoke-AzRestMethod -Scope It -ParameterFilter {
                 $Method -eq 'PUT' -and
                 $Path -like '*/Microsoft.OperationalInsights/workspaces/law-arc/tables/ArcRemediation_CL*' -and
-                $Path -like '*api-version=2022-10-01*'
+                $Path -like '*api-version=2023-09-01*'
             }
         }
 

@@ -51,7 +51,7 @@ function Test-DcrReuse {
         [string]$DcrResourceId
     )
 
-    $response = Invoke-AzRestMethod -Path "${DcrResourceId}?api-version=2023-03-11" -Method 'GET' -ErrorAction Stop
+    $response = Invoke-AzRestMethod -Path "${DcrResourceId}?api-version=2024-03-11" -Method 'GET' -ErrorAction Stop
 
     if ($response.StatusCode -eq 404) {
         return [PSCustomObject]@{
@@ -90,7 +90,7 @@ function Test-DcrReuse {
     # Prefer the DCR-embedded logsIngestion if both are present. Otherwise
     # fall back to the DCE - resolve its endpoint via a second GET.
     if (-not $hasLogs -and $hasDce) {
-        $dceResponse = Invoke-AzRestMethod -Path "${dceId}?api-version=2022-06-01" -Method 'GET' -ErrorAction Stop
+        $dceResponse = Invoke-AzRestMethod -Path "${dceId}?api-version=2024-03-11" -Method 'GET' -ErrorAction Stop
         if ($dceResponse.StatusCode -lt 400 -and $dceResponse.Content) {
             $dceBody = $dceResponse.Content | ConvertFrom-Json
             if ($dceBody.properties.logsIngestion.endpoint) {

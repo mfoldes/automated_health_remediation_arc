@@ -190,7 +190,7 @@ Describe 'Get-AzureResourceState' {
                 }
                 $null = Get-AzureResourceState -CloudProfile (Get-CloudProfile -Name 'AzureGovernmentDoD') `
                     -SubscriptionId 'subgov' -ResourceGroupName 'rg-gov' -MachineName 'mgov' -AccessToken 'tok'
-                $env:T_RS_URI | Should -Match '^https://management\.usgovcloudapi\.net/subscriptions/subgov/resourceGroups/rg-gov/providers/Microsoft\.HybridCompute/machines/mgov\?api-version=2024-07-10$'
+                $env:T_RS_URI | Should -Match '^https://management\.usgovcloudapi\.net/subscriptions/subgov/resourceGroups/rg-gov/providers/Microsoft\.HybridCompute/machines/mgov\?api-version=2025-01-13$'
             }
         }
     }

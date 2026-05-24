@@ -92,7 +92,7 @@ function Get-AzureResourceState {
 
         .PARAMETER ApiVersion
             Microsoft.HybridCompute/machines API version. Default
-            '2024-07-10', the GA version at spec time.
+            '2025-01-13', the current GA version.
 
         .OUTPUTS
             PSCustomObject with:
@@ -114,7 +114,7 @@ function Get-AzureResourceState {
         [Parameter(Mandatory)] [string]$MachineName,
         [Parameter(Mandatory)] [string]$AccessToken,
         [Parameter()] [int]$TimeoutSec = 30,
-        [Parameter()] [string]$ApiVersion = '2024-07-10'
+        [Parameter()] [string]$ApiVersion = '2025-01-13'
     )
 
     $armBase = ([string]$CloudProfile.ArmEndpoint).TrimEnd('/')
@@ -208,6 +208,7 @@ function Get-AzureResourceState {
     $cls = switch ($status) {
         'Connected' { 'Connected' }
         'Disconnected' { 'Disconnected' }
+        'AwaitingConnection' { 'Disconnected' }
         'Expired' { 'Expired' }
         'Error' { 'AzureMachineError' }
         default { 'Unknown' }

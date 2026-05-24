@@ -127,7 +127,7 @@ function New-LawAndTable {
         }
     } | ConvertTo-Json -Depth 10
 
-    $tablePath = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.OperationalInsights/workspaces/$WorkspaceName/tables/$($TableName)?api-version=2022-10-01"
+    $tablePath = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.OperationalInsights/workspaces/$WorkspaceName/tables/$($TableName)?api-version=2023-09-01"
 
     if (-not $PSCmdlet.ShouldProcess($TableName, "PUT $tablePath")) {
         return

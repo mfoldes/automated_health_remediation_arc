@@ -51,7 +51,7 @@ function Remove-ArcResource {
 
         .PARAMETER ApiVersion
             Microsoft.HybridCompute/machines API version. Default
-            '2024-07-10'.
+            '2025-01-13'.
 
         .OUTPUTS
             PSCustomObject with:
@@ -72,7 +72,7 @@ function Remove-ArcResource {
         [Parameter(Mandatory)] [string]$MachineName,
         [Parameter(Mandatory)] [string]$AccessToken,
         [Parameter()] [int]$TimeoutSec = 1800,
-        [Parameter()] [string]$ApiVersion = '2024-07-10'
+        [Parameter()] [string]$ApiVersion = '2025-01-13'
     )
 
     $start = Get-Date
@@ -244,7 +244,7 @@ function Test-ArcResource404 {
         [Parameter(Mandatory)] [string]$ResourceGroupName,
         [Parameter(Mandatory)] [string]$MachineName,
         [Parameter(Mandatory)] [string]$AccessToken,
-        [Parameter()] [string]$ApiVersion = '2024-07-10'
+        [Parameter()] [string]$ApiVersion = '2025-01-13'
     )
 
     $state = Get-AzureResourceState -CloudProfile $CloudProfile `
