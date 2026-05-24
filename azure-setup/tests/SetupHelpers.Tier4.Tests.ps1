@@ -68,7 +68,7 @@ Describe 'New-DirectDcr' {
             $obj.properties.dataFlows[0].transformKql | Should -Match 'TimeGenerated\s*=\s*EventTimeUtc'
         }
 
-        It 'targets api-version=2023-03-11 and PUTs to Microsoft.Insights/dataCollectionRules/{name}' {
+        It 'targets api-version=2024-03-11 and PUTs to Microsoft.Insights/dataCollectionRules/{name}' {
             Mock -CommandName Invoke-AzRestMethod -MockWith {
                 [PSCustomObject]@{
                     StatusCode = 200
@@ -85,7 +85,7 @@ Describe 'New-DirectDcr' {
             Assert-MockCalled Invoke-AzRestMethod -Scope It -ParameterFilter {
                 $Method -eq 'PUT' -and
                 $Path -like '*/Microsoft.Insights/dataCollectionRules/dcr-arc*' -and
-                $Path -like '*api-version=2023-03-11*'
+                $Path -like '*api-version=2024-03-11*'
             }
         }
     }
@@ -210,7 +210,7 @@ Describe 'New-OptionalDce' {
         $result.LogsIngestionUrl | Should -Match 'existing-dce'
     }
 
-    It 'PUTs a new DCE with api-version=2022-06-01 when missing' {
+    It 'PUTs a new DCE with api-version=2024-03-11 when missing' {
         $script:capturedMethod = $null
         Mock -CommandName Invoke-AzRestMethod -MockWith {
             param($Path, $Method)
@@ -218,7 +218,7 @@ Describe 'New-OptionalDce' {
                 [PSCustomObject]@{ StatusCode = 404; Content = '' }
             } else {
                 $script:capturedMethod = $Method
-                if ($Path -notlike '*api-version=2022-06-01*') {
+                if ($Path -notlike '*api-version=2024-03-11*') {
                     throw "wrong api-version: $Path"
                 }
                 [PSCustomObject]@{

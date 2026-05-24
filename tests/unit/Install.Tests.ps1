@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 BeforeAll {
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -45,7 +45,7 @@ Describe 'Install.ps1' {
                 $r = & $script:Install -ConfigJsonPath $layout.Config `
                     -InstallPath $layout.Install -DataPath $layout.Data `
                     -SourceModuleRoot $script:SourceMod `
-                    -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -Confirm:$false
+                    -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -SkipEventLogSetup -Confirm:$false
 
                 $r.InstallPath | Should -Be $layout.Install
                 $r.DataPath | Should -Be $layout.Data
@@ -70,14 +70,14 @@ Describe 'Install.ps1' {
             try {
                 Write-OperatorConfig -Path $layout.Config
                 & $script:Install -ConfigJsonPath $layout.Config -InstallPath $layout.Install -DataPath $layout.Data `
-                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -Confirm:$false | Out-Null
+                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -SkipEventLogSetup -Confirm:$false | Out-Null
 
                 # Modify a marker file in the install path; re-run; marker must be reset.
                 $marker = Join-Path $layout.Install 'TEST_MARKER.txt'
                 'tampered' | Set-Content -LiteralPath $marker -Encoding ASCII
 
                 { & $script:Install -ConfigJsonPath $layout.Config -InstallPath $layout.Install -DataPath $layout.Data `
-                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -Confirm:$false } | Should -Not -Throw
+                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -SkipEventLogSetup -Confirm:$false } | Should -Not -Throw
 
                 # Module manifest is still in place after the second run.
                 (Test-Path -LiteralPath (Join-Path $layout.Install 'ArcRemediator.psd1')) | Should -BeTrue
@@ -93,7 +93,7 @@ Describe 'Install.ps1' {
             try {
                 { & $script:Install -ConfigJsonPath (Join-Path $layout.Root 'missing.json') `
                     -InstallPath $layout.Install -DataPath $layout.Data `
-                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -Confirm:$false } |
+                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -SkipEventLogSetup -Confirm:$false } |
                     Should -Throw -ExpectedMessage '*does not exist*'
             } finally {
                 Remove-Item -LiteralPath $layout.Root -Recurse -Force -ErrorAction SilentlyContinue
@@ -107,7 +107,7 @@ Describe 'Install.ps1' {
                 $badSrc = Join-Path $layout.Root 'not-a-module'
                 New-Item -ItemType Directory -Path $badSrc -Force | Out-Null
                 { & $script:Install -ConfigJsonPath $layout.Config -InstallPath $layout.Install -DataPath $layout.Data `
-                    -SourceModuleRoot $badSrc -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -Confirm:$false } |
+                    -SourceModuleRoot $badSrc -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -SkipEventLogSetup -Confirm:$false } |
                     Should -Throw -ExpectedMessage '*source module not found*'
             } finally {
                 Remove-Item -LiteralPath $layout.Root -Recurse -Force -ErrorAction SilentlyContinue
@@ -121,7 +121,7 @@ Describe 'Install.ps1' {
             try {
                 Write-OperatorConfig -Path $layout.Config
                 & $script:Install -ConfigJsonPath $layout.Config -InstallPath $layout.Install -DataPath $layout.Data `
-                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -Confirm:$false | Out-Null
+                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -SkipEventLogSetup -Confirm:$false | Out-Null
 
                 Remove-Module ArcRemediator -Force -ErrorAction SilentlyContinue
                 $manifest = Join-Path $layout.Install 'ArcRemediator.psd1'
@@ -157,7 +157,7 @@ Describe 'Uninstall.ps1' {
             try {
                 Write-OperatorConfig -Path $layout.Config
                 & $script:Install -ConfigJsonPath $layout.Config -InstallPath $layout.Install -DataPath $layout.Data `
-                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -Confirm:$false | Out-Null
+                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -SkipEventLogSetup -Confirm:$false | Out-Null
 
                 # Seed a marker in the data path that must survive uninstall.
                 $seeded = Join-Path $layout.Data 'state.json'
@@ -180,7 +180,7 @@ Describe 'Uninstall.ps1' {
             try {
                 Write-OperatorConfig -Path $layout.Config
                 & $script:Install -ConfigJsonPath $layout.Config -InstallPath $layout.Install -DataPath $layout.Data `
-                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -Confirm:$false | Out-Null
+                    -SourceModuleRoot $script:SourceMod -SkipTaskRegistration -SkipElevationCheck -SkipEditionCheck -SkipAclHardening -SkipEventLogSetup -Confirm:$false | Out-Null
 
                 $r = & $script:Uninstall -InstallPath $layout.Install -DataPath $layout.Data `
                     -RemoveData -SkipTaskRemoval -SkipElevationCheck -Confirm:$false

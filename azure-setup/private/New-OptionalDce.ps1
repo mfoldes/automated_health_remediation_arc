@@ -56,7 +56,7 @@ function New-OptionalDce {
     }
 
     $dcePath = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.Insights/dataCollectionEndpoints/$DceName"
-    $apiVersion = '2022-06-01'
+    $apiVersion = '2024-03-11'
 
     $existing = Invoke-AzRestMethod -Path "${dcePath}?api-version=$apiVersion" -Method 'GET' -ErrorAction SilentlyContinue
     if ($existing -and $existing.StatusCode -eq 200) {

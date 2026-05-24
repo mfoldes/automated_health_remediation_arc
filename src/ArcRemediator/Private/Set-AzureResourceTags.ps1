@@ -49,7 +49,7 @@ function Set-AzureResourceTags {
 
         .PARAMETER ApiVersion
             Microsoft.HybridCompute/machines API version. Default
-            '2024-07-10'.
+            '2025-01-13'.
 
         .OUTPUTS
             PSCustomObject with:
@@ -74,7 +74,7 @@ function Set-AzureResourceTags {
         [Parameter()] [hashtable]$SetTags = @{},
         [Parameter()] [string[]]$RemoveTagKeys = @(),
         [Parameter()] [int]$TimeoutSec = 30,
-        [Parameter()] [string]$ApiVersion = '2024-07-10'
+        [Parameter()] [string]$ApiVersion = '2025-01-13'
     )
 
     $armBase = ([string]$CloudProfile.ArmEndpoint).TrimEnd('/')
